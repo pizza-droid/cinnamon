@@ -1,4 +1,5 @@
 import concurrent.futures
+import os
 import subprocess
 import time
 import webbrowser
@@ -96,6 +97,19 @@ _UPDATE_REPO = "pizza-droid/cinnamon"
 _UPDATE_CHECK_FALLBACK_DAYS = 7
 
 
+def _gh_headers():
+    h = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        try:
+            token = subprocess.check_output(["gh", "auth", "token"], text=True, timeout=3).strip()
+        except Exception:
+            pass
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
+
+
 def _check_for_updates():
     try:
         cfg = load_config()
@@ -107,7 +121,7 @@ def _check_for_updates():
         resp = requests.get(
             f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
             timeout=5,
-            headers={"Accept": "application/vnd.github+json"},
+            headers=_gh_headers(),
         )
         if resp.status_code != 200:
             return
@@ -1244,7 +1258,7 @@ def update():
         resp = requests.get(
             f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
             timeout=5,
-            headers={"Accept": "application/vnd.github+json"},
+            headers=_gh_headers(),
         )
         if resp.status_code != 200:
             _print_error("Could not check for updates from GitHub.")
