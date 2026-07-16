@@ -2,7 +2,7 @@
 
 > Watch TV shows and anime from your terminal. Search, pick an episode, and it plays in mpv or VLC.
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](#)
+[![Version](https://img.shields.io/badge/version-0.2.1-blue)](#)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux%20%7C%20termux-lightgrey)](#)
@@ -14,7 +14,7 @@ You'll need **Python 3.10+** and either [mpv](https://mpv.io) or [VLC](https://v
 ### Install
 
 ```bash
-pip install https://github.com/pizza-droid/cinnamon/archive/refs/tags/v0.2.0.tar.gz
+pip install https://github.com/pizza-droid/cinnamon/archive/refs/tags/v0.2.1.tar.gz
 cinnamon setup
 ```
 
@@ -102,7 +102,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 
 | Name | Needs |
 |---|---|
-| `vidsrc` | `playwright install chromium` |
+| `vidsrc` | `pip install "cinnamon[scrapers]"` then `playwright install chromium` |
 | `torrentio` | `npm install` (torrent playback) |
 
 ```bash
