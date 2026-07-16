@@ -304,7 +304,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     safe = "".join(c if c.isalnum() or c in " .-_()" else "_" for c in title) or "video"
     outtmpl = os.path.join(output_dir, f"{safe}.%(ext)s")
 
-    cmd = [exe, "--no-mtime", "--no-warnings", "-o", outtmpl]
+    cmd = [exe, "--no-mtime", "--no-warnings", "--progress", "--newline", "-o", outtmpl]
     if referer:
         cmd += ["--referer", referer]
     cmd.append(url)
@@ -314,53 +314,37 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
 
     print(f"Downloading to {os.path.abspath(output_dir)}", file=sys.stderr)
 
-    import threading
-
-    spinner_stop = threading.Event()
-    def _spin():
-        chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        i = 0
-        while not spinner_stop.is_set():
-            print(f"\r  {chars[i % len(chars)]} Downloading...   ", end="", file=sys.stderr)
-            i += 1
-            spinner_stop.wait(0.1)
-    spinner_thread = threading.Thread(target=_spin, daemon=True)
-
     proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1,
     )
 
-    spinner_thread.start()
+    import re
     last_pct = -1
     try:
-        for line in proc.stderr:
+        for line in proc.stdout:
             if "[download]" not in line:
                 continue
-
-            import re
             m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+).*ETA\s+(\S+)", line)
             if not m:
                 m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
-
             if m:
-                spinner_stop.set()
                 pct = float(m.group(1))
+                if int(pct) == last_pct:
+                    continue
+                last_pct = int(pct)
                 size_val = float(m.group(2))
                 unit = m.group(3)
                 eta = m.group(4) if m.lastindex >= 4 else ""
-
-                if int(pct) != last_pct:
-                    last_pct = int(pct)
-                    bar_width = 25
-                    filled = int(bar_width * pct / 100)
-                    bar = "█" * filled + "░" * (bar_width - filled)
-                    eta_str = f" ETA {eta}" if eta else ""
-                    print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}", end="", file=sys.stderr)
+                bar_width = 25
+                filled = int(bar_width * pct / 100)
+                bar = "█" * filled + "░" * (bar_width - filled)
+                eta_str = f" ETA {eta}" if eta else ""
+                print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}", end="", file=sys.stderr, flush=True)
+            else:
+                print(f"\r  {line.rstrip()}", file=sys.stderr, flush=True)
 
         proc.wait()
-        spinner_stop.set()
-        spinner_thread.join(1)
         print(file=sys.stderr)
 
         if proc.returncode == 0:
