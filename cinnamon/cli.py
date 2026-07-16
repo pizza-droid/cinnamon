@@ -1224,8 +1224,7 @@ def anime(query, season, ep_str, download, player, quality, info_only):
                 _print_error("Invalid episode number.")
                 return
 
-    if scraper is None:
-        scraper = "anime"
+    scraper = "anime"
 
     show_dict = {"name": show_name, "id": 0}
     ep_name = f"S{season:02d}E{ep_start:02d}"
