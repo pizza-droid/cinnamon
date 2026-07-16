@@ -273,6 +273,8 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
             "episode": f"{ep_start}-{ep_end}",
             "quality": quality or "",
             "referer": "",
+            "scraper": scraper,
+            "translation": translation or "",
         })
         from .downloads import update as _track_update
         try:
@@ -883,17 +885,16 @@ def resume():
         ep = d.get("episode", "")
         season = d.get("season")
         ep_label = f"S{season}E{ep}" if season and ep else str(ep)
-        if not d.get("url"):
-            ep_label += " [dim](can't resume range)[/dim]"
-        else:
+        if d.get("url") or (not d.get("url") and "-" in str(ep)):
             resume_indices.append(i)
+        else:
+            ep_label += " [dim](can't resume)[/dim]"
         table.add_row(str(i), d.get("title", "?"), ep_label, d.get("quality", "-"), "[yellow]interrupted[/yellow]")
 
     console.print(table)
 
     if not resume_indices:
-        from .downloads import remove as _track_remove
-        console.print("  [dim]Range downloads cannot be resumed individually. Re-run with -e to download the full range.[/dim]")
+        console.print("  [dim]No resumable entries found.[/dim]")
         if Prompt.ask("  Remove these entries?", default="y").strip().lower() in ("y", "yes"):
             for d in dls:
                 _track_remove(d["id"])
@@ -908,10 +909,28 @@ def resume():
 
     track_id = d["id"]
     url = d.get("url")
-    if not url:
-        _print_error("Range downloads cannot be resumed from here. Re-run the full range with -e.")
+    title = d.get("title", "?")
+    season = d.get("season")
+    ep_raw = d.get("episode", "")
+
+    if not url and "-" in str(ep_raw):
+        ep_parts = str(ep_raw).split("-", 1)
+        try:
+            ep_start, ep_end = int(ep_parts[0]), int(ep_parts[1])
+        except ValueError:
+            _print_error("Invalid episode range in download entry.")
+            return
+        show_dict = {"name": title, "id": d.get("tv_id", 0)}
+        scraper = d.get("scraper", "anime")
+        quality = d.get("quality")
+        translation = d.get("translation") or None
+        _track_update(track_id, status="queued")
+        _play_with_menu(show_dict, season or 1, ep_start, ep_end, "", scraper, None, quality, False, True, translation=translation)
         return
-    title = d.get("title", "video")
+
+    if not url:
+        _print_error("Cannot resume this download entry (no URL).")
+        return
     referer = d.get("referer")
 
     _track_update(track_id, status="queued")
