@@ -42,19 +42,6 @@ from .tmdb import TMDBClient
 
 console = Console()
 
-_PLAIN = False
-
-
-def set_plain(value=True):
-    global _PLAIN
-    _PLAIN = bool(value)
-    console.no_color = _PLAIN
-
-
-def is_plain():
-    return _PLAIN
-
-
 RESOLVE_TIMEOUT = 90
 
 _ANIME_GENRE_ID = 16
@@ -78,9 +65,6 @@ def _is_anime(show):
 
 
 def _print_error(title, detail=None):
-    if _PLAIN:
-        console.print(f"error: {title}" + (f" — {detail}" if detail else ""))
-        return
     t = get_theme()
     if detail:
         console.print(Panel(f"[{t['error']}]{title}[/{t['error']}]\n[{t['dim']}]{detail}[/{t['dim']}]", border_style=t["error"]))
@@ -89,9 +73,6 @@ def _print_error(title, detail=None):
 
 
 def _print_success(title, detail=None):
-    if _PLAIN:
-        console.print(f"ok: {title}" + (f" — {detail}" if detail else ""))
-        return
     t = get_theme()
     if detail:
         console.print(Panel(f"[{t['success']}]{title}[/{t['success']}]\n[{t['dim']}]{detail}[/{t['dim']}]", border_style=t["success"]))
@@ -100,9 +81,6 @@ def _print_success(title, detail=None):
 
 
 def _print_info(title, detail=None):
-    if _PLAIN:
-        console.print(title + (f" — {detail}" if detail else ""))
-        return
     t = get_theme()
     if detail:
         console.print(Panel(f"[{t['info']}]{title}[/{t['info']}]\n[{t['dim']}]{detail}[/{t['dim']}]", border_style=t["info"]))
@@ -410,17 +388,14 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         return None
 
     theme = get_theme()
-    if _PLAIN:
-        console.print(f"Stream ready: {result.title}")
-    else:
-        console.clear()
-        console.print(Panel(
-            f"[{theme['success']}]Stream ready![/{theme['success']}]  [bold]{result.title}[/bold]",
-            border_style=theme["success"],
-        ))
+    console.clear()
+    console.print(Panel(
+        f"[{theme['success']}]Stream ready![/{theme['success']}]  [bold]{result.title}[/bold]",
+        border_style=theme["success"],
+    ))
 
     if info_only:
-        console.print(f"  URL: {result.m3u8_url}")
+        console.print(f"  [{theme['dim']}]URL:[/{theme['dim']}] {result.m3u8_url}")
         return None
 
     if download:
@@ -495,41 +470,32 @@ class CinnamonGroup(click.Group):
 
 @click.group(cls=CinnamonGroup, invoke_without_command=True)
 @click.option("--setup", is_flag=True, help="Run the setup wizard")
-@click.option("--plain", "-p", is_flag=True, help="Disable the TUI (plain text output)")
 @click.version_option(__version__, "--version", "-V")
 @click.pass_context
-def cli(ctx, setup, plain):
+def cli(ctx, setup):
     """Cinnamon - Stream TV shows & movies from the command line."""
-    if plain or load_config().get("plain"):
-        set_plain(True)
     if setup:
         ctx.invoke(setup_cmd)
         return
     if ctx.invoked_subcommand is None:
         if not get_tmdb_api_key():
-            if _PLAIN:
-                console.print("Welcome to Cinnamon!")
-            else:
-                console.clear()
-                console.print(Panel.fit(
-                    "[bold orange1]Welcome to Cinnamon![/bold orange1]",
-                    border_style="bright_yellow",
-                ))
+            console.clear()
+            console.print(Panel.fit(
+                "[bold orange1]Welcome to Cinnamon![/bold orange1]",
+                border_style="bright_yellow",
+            ))
             console.print()
             if Confirm.ask("No API key found. Run setup?", default=True):
                 ctx.invoke(setup_cmd)
                 return
         theme = get_theme()
-        if _PLAIN:
-            console.print(f"Cinnamon v{__version__}")
-        else:
-            console.clear()
-            console.print(Panel.fit(
-                f"[bold {theme['accent']}]Cinna[/bold {theme['accent']}][bold]mon[/bold]  [dim]v{__version__}[/dim]",
-                border_style=theme["panel"],
-            ))
+        console.clear()
+        console.print(Panel.fit(
+            f"[bold {theme['accent']}]Cinna[/bold {theme['accent']}][bold]mon[/bold]  [dim]v{__version__}[/dim]",
+            border_style=theme["panel"],
+        ))
         console.print()
-        query = Prompt.ask("Search for a TV show" if _PLAIN else f"[bold]Search for a[/bold] [{theme['info']}]TV show[/{theme['info']}]")
+        query = Prompt.ask(f"[bold]Search for a[/bold] [{theme['info']}]TV show[/{theme['info']}]")
         if query.strip():
             ctx.invoke(search, query=(query.strip(),))
 
@@ -549,14 +515,11 @@ def _setup_wizard():
     cfg = load_config()
     theme = get_theme()
 
-    if _PLAIN:
-        console.print("Cinnamon Setup")
-    else:
-        console.clear()
-        console.print(Panel.fit(
-            "[bold]⚙ Cinnamon Setup[/bold]",
-            border_style=theme["panel"],
-        ))
+    console.clear()
+    console.print(Panel.fit(
+        "[bold]⚙ Cinnamon Setup[/bold]",
+        border_style=theme["panel"],
+    ))
     console.print()
 
     # --- TMDB API Key ---
@@ -634,22 +597,15 @@ def _setup_wizard():
     save_config(cfg)
     theme = get_theme()
 
-    if _PLAIN:
-        console.print("Setup complete!")
-        console.print("  cinnamon        – quick search")
-        console.print("  cinnamon <show> – search & play")
-        console.print("  cinnamon watch  – browse episodes")
-        console.print()
-    else:
-        console.clear()
-        console.print(Panel.fit(
-            f"[{theme['success']}]✓ Setup complete![/]",
-            border_style=theme["panel"],
-        ))
-        console.print(f"  [{theme['info']}]cinnamon[/]  –  quick search")
-        console.print(f"  [{theme['info']}]cinnamon <show>[/]  –  search & play")
-        console.print(f"  [{theme['info']}]cinnamon watch[/]  –  browse episodes")
-        console.print()
+    console.clear()
+    console.print(Panel.fit(
+        f"[{theme['success']}]✓ Setup complete![/]",
+        border_style=theme["panel"],
+    ))
+    console.print(f"  [{theme['info']}]cinnamon[/]  –  quick search")
+    console.print(f"  [{theme['info']}]cinnamon <show>[/]  –  search & play")
+    console.print(f"  [{theme['info']}]cinnamon watch[/]  –  browse episodes")
+    console.print()
 
 
 def _setup_api_key():
@@ -753,11 +709,8 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
         return
 
     theme = get_theme()
-    if _PLAIN:
-        console.print(show_name)
-    else:
-        console.clear()
-        console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
+    console.clear()
+    console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
 
     if media_type == "tv":
         _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download, ep_start, ep_end)
@@ -1092,7 +1045,6 @@ def config_show():
     table.add_row("Default scraper", cfg.get("default_scraper", "example"))
     table.add_row("Default player", cfg.get("default_player", "auto"))
     table.add_row("Theme", cfg.get("theme", "cinnamon"))
-    table.add_row("Plain output", "on" if cfg.get("plain") else "off")
 
     scrapers_cfg = cfg.get("scrapers", {})
     for name, sc in scrapers_cfg.items():
@@ -1152,19 +1104,6 @@ def config_default_player(player):
     cfg["default_player"] = player
     save_config(cfg)
     _print_success(f"Default player set to [bold]{player}[/bold].")
-
-
-@config.command("plain")
-@click.argument("state", type=click.Choice(["on", "off"]))
-def config_plain(state):
-    """Toggle plain (no-TUI) output permanently."""
-    cfg = load_config()
-    cfg["plain"] = state == "on"
-    save_config(cfg)
-    if state == "on":
-        _print_success("Plain output enabled. Use `cinnamon -p` for a one-off.")
-    else:
-        _print_success("Plain output disabled.")
 
 
 @config.group("scraper")
@@ -1312,11 +1251,8 @@ def anime(query, season, ep_str, download, player, quality, info_only):
 
     show_name = _title(show)
     theme = get_theme()
-    if _PLAIN:
-        console.print(show_name)
-    else:
-        console.clear()
-        console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
+    console.clear()
+    console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
 
     from .history import get_history as _get_history
     if not ep_str:
