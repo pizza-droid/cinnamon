@@ -314,11 +314,24 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
 
     print(f"Downloading to {os.path.abspath(output_dir)}", file=sys.stderr)
 
+    import threading
+
+    spinner_stop = threading.Event()
+    def _spin():
+        chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        i = 0
+        while not spinner_stop.is_set():
+            print(f"\r  {chars[i % len(chars)]} Downloading...   ", end="", file=sys.stderr)
+            i += 1
+            spinner_stop.wait(0.1)
+    spinner_thread = threading.Thread(target=_spin, daemon=True)
+
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1,
     )
 
+    spinner_thread.start()
     last_pct = -1
     try:
         for line in proc.stderr:
@@ -331,6 +344,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
                 m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
 
             if m:
+                spinner_stop.set()
                 pct = float(m.group(1))
                 size_val = float(m.group(2))
                 unit = m.group(3)
@@ -345,6 +359,8 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
                     print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}", end="", file=sys.stderr)
 
         proc.wait()
+        spinner_stop.set()
+        spinner_thread.join(1)
         print(file=sys.stderr)
 
         if proc.returncode == 0:
