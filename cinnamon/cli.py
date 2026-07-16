@@ -426,26 +426,45 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         )
         return None
 
+    # Fallback chain: try the chosen scraper, then other builtin scrapers.
+    # Only auto-fallback when no scraper was explicitly requested.
+    builtins = [s["name"] for s in list_scrapers() if not s.get("optional")]
+    if scraper:
+        fallback_names = [scraper_name]
+    else:
+        fallback_names = [scraper_name] + [n for n in builtins if n != scraper_name]
+
     console.print()
 
-    try:
-        with console.status(f"Resolving via [bold]{scraper_name}[/bold]... (timeout {RESOLVE_TIMEOUT}s)", spinner="dots"):
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                info = {"show": show_name, "tv_id": show_id, "season": season_num, "episode": ep_num}
-                if quality:
-                    info["quality"] = quality
-                if translation:
-                    info["translation"] = translation
-                future = pool.submit(scraper_instance.resolve, info)
-                result = future.result(timeout=RESOLVE_TIMEOUT)
-    except concurrent.futures.TimeoutError:
-        _print_error(
-            f"Scraper [bold]{scraper_name}[/bold] timed out after {RESOLVE_TIMEOUT}s.",
-            "The streaming source may be down or unreachable. Try another scraper or episode.",
-        )
-        return None
-    except ScraperError as e:
-        _print_error(str(e))
+    last_error = None
+    for attempt_name in fallback_names:
+        attempt = get_scraper(attempt_name)
+        if not attempt:
+            continue
+        try:
+            with console.status(f"Resolving via [bold]{attempt_name}[/bold]... (timeout {RESOLVE_TIMEOUT}s)", spinner="dots"):
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    info = {"show": show_name, "tv_id": show_id, "season": season_num, "episode": ep_num}
+                    if quality:
+                        info["quality"] = quality
+                    if translation:
+                        info["translation"] = translation
+                    future = pool.submit(attempt.resolve, info)
+                    result = future.result(timeout=RESOLVE_TIMEOUT)
+            if result:
+                scraper_name = attempt_name
+                break
+            last_error = f"Scraper [bold]{attempt_name}[/bold] returned nothing."
+        except concurrent.futures.TimeoutError:
+            last_error = f"Scraper [bold]{attempt_name}[/bold] timed out after {RESOLVE_TIMEOUT}s."
+        except ScraperError as e:
+            last_error = str(e)
+            continue
+    else:
+        if last_error:
+            _print_error(last_error)
+        else:
+            _print_error(f"No streaming source found for {show_name} {ep_name}.")
         return None
 
     if not result:
