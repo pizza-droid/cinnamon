@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cinnamon"
-version = "0.2.2"
+version = "0.2.3"
 description = "CLI to search TV shows via TMDB, scrape m3u8 links, and play in VLC/mpv"
 requires-python = ">=3.10"
 dependencies = [

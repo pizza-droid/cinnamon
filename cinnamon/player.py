@@ -149,6 +149,15 @@ def play_vlc(url, title="", referer=None):
     exe = _vlc_path()
     if not exe:
         raise PlayerNotFoundError("vlc")
+    if _in_termux():
+        # On Termux `vlc`/`mpv` are Android-app wrapper scripts that must be
+        # run through the shell; desktop flags are not supported by the app.
+        cmd = f'{exe} "{url}"'
+        try:
+            return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            hint = " — try reinstalling with: pkg install vlc" if "Exec format" in str(e) or "No such file" in str(e) else ""
+            raise PlayerLaunchError("VLC", str(e) + hint)
     cmd = [exe, "--play-and-exit", f"--meta-title={title}"]
     if referer:
         cmd.append(f"--http-referrer={referer}")
@@ -164,6 +173,15 @@ def play_mpv(url, title="", referer=None):
     exe = _mpv_path()
     if not exe:
         raise PlayerNotFoundError("mpv")
+    if _in_termux():
+        # On Termux `mpv` is an Android-app wrapper script that must be run
+        # through the shell; desktop flags are not supported by the app.
+        cmd = f'{exe} "{url}"'
+        try:
+            return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            hint = " — try reinstalling with: pkg install mpv" if "Exec format" in str(e) or "No such file" in str(e) else ""
+            raise PlayerLaunchError("mpv", str(e) + hint)
     cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
