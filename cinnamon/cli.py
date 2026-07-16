@@ -177,6 +177,47 @@ def _handle_tmdb_error(fn):
     return wrapper
 
 
+def _pick_combined(items, message):
+    """Picker for mixed TV/movie results; tags each entry with its type."""
+    if not items:
+        return None
+    try:
+        choices = []
+        for item in items:
+            mtype = item.get("_media_type", "tv")
+            title = item.get("title") or item.get("name") or "?"
+            date = item.get("release_date") or item.get("first_air_date") or ""
+            year = (date or "")[:4]
+            tag = "Movie" if mtype == "movie" else "TV"
+            label = f"{title}  ({year})  [{tag}]"
+            choices.append(questionary.Choice(title=label, value=item))
+        return questionary.select(message, choices=choices).unsafe_ask()
+    except Exception:
+        # Fallback to a numbered table
+        table = Table(border_style="dim")
+        table.add_column("#", style="cyan")
+        table.add_column("Title", style="white")
+        table.add_column("Year", style="green")
+        table.add_column("Type", style="yellow")
+        for i, item in enumerate(items, 1):
+            mtype = item.get("_media_type", "tv")
+            title = item.get("title") or item.get("name") or "?"
+            date = item.get("release_date") or item.get("first_air_date") or ""
+            table.add_row(str(i), title, (date or "")[:4], "Movie" if mtype == "movie" else "TV")
+        console.print(table)
+        while True:
+            try:
+                choice = int(Prompt.ask(f"{message} (enter number)", default="1"))
+                if 1 <= choice <= len(items):
+                    return items[choice - 1]
+                console.print("[red]Pick a number between 1 and {len(items)}.[/red]")
+            except ValueError:
+                console.print("[red]Invalid input. Enter a number.[/red]")
+            except (EOFError, KeyboardInterrupt):
+                console.print()
+                raise SystemExit(0)
+
+
 def _pick_with_arrows(items, title_key, subtitle_key, message):
     if not items:
         return None
@@ -446,6 +487,71 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         return None
 
 
+def _play_movie(show, scraper, player, quality, info_only, download=False):
+    """Resolve and play a movie (single stream, no season/episode)."""
+    from .history import set_history as _set_history
+
+    show_name = show.get("title", "?")
+    show_id = show["id"]
+
+    config = load_config()
+    scraper_name = scraper or config.get("default_scraper", "webstream")
+    scraper_instance = get_scraper(scraper_name)
+    if not scraper_instance:
+        available = [s["name"] for s in list_scrapers()]
+        _print_error(
+            f"Unknown scraper: [bold]{scraper_name}[/bold]",
+            f"Available: {', '.join(available)}",
+        )
+        return
+
+    console.print()
+    try:
+        with console.status(f"Resolving via [bold]{scraper_name}[/bold]... (timeout {RESOLVE_TIMEOUT}s)", spinner="dots"):
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                info = {"show": show_name, "movie_id": show_id, "media_type": "movie"}
+                if quality:
+                    info["quality"] = quality
+                future = pool.submit(scraper_instance.resolve, info)
+                result = future.result(timeout=RESOLVE_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        _print_error(f"Scraper [bold]{scraper_name}[/bold] timed out after {RESOLVE_TIMEOUT}s.")
+        return
+    except ScraperError as e:
+        _print_error(str(e))
+        return
+
+    if not result:
+        _print_error(f"Scraper [bold]{scraper_name}[/bold] returned nothing.")
+        return
+
+    theme = get_theme()
+    console.clear()
+    console.print(Panel(
+        f"[{theme['success']}]Stream ready![/{theme['success']}]  [bold]{result.title}[/bold]",
+        border_style=theme["success"],
+    ))
+
+    _set_history(show_name, None, None, scraper=scraper_name, quality=quality)
+
+    if info_only:
+        console.print(f"  [{theme['dim']}]URL:[/{theme['dim']}] {result.m3u8_url}")
+        return
+
+    if download:
+        _print_error("Movie download is not supported yet.")
+        return
+
+    player_choice = player or config.get("default_player", "auto")
+    try:
+        console.print(f"  [{theme['info']}]Opening in {player_choice.upper()}...[/{theme['info']}]")
+        play(result.m3u8_url, title=result.title, player=player_choice, referer=result.referer)
+    except PlayerNotFoundError as e:
+        _print_error(str(e))
+    except Exception as e:
+        _print_error("Failed to launch player.", str(e))
+
+
 # ---------------------------------------------------------------------------
 # custom group (allows `cinnamon <query>` as shortcut for search)
 # ---------------------------------------------------------------------------
@@ -660,7 +766,7 @@ def _theme_preview(name):
 
 @cli.command()
 @click.argument("query", nargs=-1, required=False)
-@click.option("-t", "--type", "media_type", type=click.Choice(["tv", "movie"]), default="tv")
+@click.option("-t", "--type", "media_type", type=click.Choice(["tv", "movie"]), default=None, help="tv or movie (defaults to both)")
 @click.option("-s", "--season", type=int, help="Season number")
 @click.option("-e", "--episode", "ep_str", help="Episode number or range (e.g. 1 or 1-10)")
 @click.option("--scraper", help="Scraper name")
@@ -670,7 +776,7 @@ def _theme_preview(name):
 @click.option("--info-only", is_flag=True, help="Show the m3u8 URL without playing")
 @_handle_tmdb_error
 def search(query, media_type, season, ep_str, scraper, player, quality, download, info_only):
-    """Search for a show, pick one, and watch it."""
+    """Search for a show or movie, pick one, and watch it."""
     _check_for_updates()
     tmdb = _get_tmdb()
 
@@ -679,30 +785,39 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
     query_str = " ".join(query) if query else None
     if not query_str:
         console.clear()
-        query_str = Prompt.ask("[bold]Search for a[/bold] [cyan]TV show[/cyan]")
+        query_str = Prompt.ask("[bold]Search for a[/bold] [cyan]show or movie[/cyan]")
 
     if media_type == "tv":
-        results = tmdb.search_tv(query_str).get("results", [])
+        combined = [dict(r, _media_type="tv") for r in tmdb.search_tv(query_str).get("results", [])]
+    elif media_type == "movie":
+        combined = [dict(r, _media_type="movie") for r in tmdb.search_movie(query_str).get("results", [])]
     else:
-        results = tmdb.search_movie(query_str).get("results", [])
+        tv = [dict(r, _media_type="tv") for r in tmdb.search_tv(query_str).get("results", [])]
+        movie = [dict(r, _media_type="movie") for r in tmdb.search_movie(query_str).get("results", [])]
+        combined = tv + movie
 
-    if not results:
-        _print_info(f"No {media_type}s found for \"{query_str}\".")
+    if not combined:
+        _print_info(f"No results found for \"{query_str}\".")
         return
 
-    title_key = "name" if media_type == "tv" else "title"
-    date_key = "first_air_date" if media_type == "tv" else "release_date"
-    show = _pick_with_arrows(results, title_key, date_key, "Select a show:")
+    show = _pick_combined(combined, "Select a title:")
 
     if not show:
         return
 
+    mtype = show.get("_media_type", "tv")
+    title_key = "name" if mtype == "tv" else "title"
+    date_key = "first_air_date" if mtype == "tv" else "release_date"
     show_name = show.get(title_key, "?")
     show_id = show["id"]
 
-    if scraper is None and _is_anime(show):
+    if scraper is None and mtype == "tv" and _is_anime(show):
         scraper = "anime"
         _print_info(f"Detected anime — using [bold]anime[/bold] scraper")
+
+    if mtype == "movie":
+        _play_movie(show, scraper, player, quality, info_only, download)
+        return
 
     if season is not None and ep_start is not None:
         _play_with_menu(show, season, ep_start, ep_end, f"S{season:02d}E{ep_start:02d}", scraper, player, quality, info_only, download)
@@ -712,10 +827,7 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
     console.clear()
     console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
 
-    if media_type == "tv":
-        _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download, ep_start, ep_end)
-    else:
-        _print_info("Movie playback not yet implemented. Stay tuned.")
+    _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download, ep_start, ep_end)
 
 
 # ---------------------------------------------------------------------------
