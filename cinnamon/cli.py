@@ -175,10 +175,16 @@ def _pick_with_arrows(items, title_key, subtitle_key, message):
     try:
         choices = []
         for item in items:
-            title = str(item.get(title_key, "?") or "?")
+            if callable(title_key):
+                title = str(title_key(item) or "?")
+            else:
+                title = str(item.get(title_key, "?") or "?")
             subtitle = ""
             if subtitle_key:
-                subtitle = str(item.get(subtitle_key, "") or "")
+                if callable(subtitle_key):
+                    subtitle = str(subtitle_key(item) or "")
+                else:
+                    subtitle = str(item.get(subtitle_key, "") or "")
             label = title if not subtitle else f"{title}  ({subtitle})"
             choices.append(questionary.Choice(title=label, value=item))
         return questionary.select(message, choices=choices).unsafe_ask()
@@ -193,13 +199,19 @@ def _pick_numbered(items, title_key, subtitle_key, message):
     table.add_column("#", style="cyan", no_wrap=True)
     table.add_column("Title", style="white")
     if subtitle_key:
-        table.add_column(subtitle_key.capitalize(), style="green")
+        table.add_column(subtitle_key.capitalize() if isinstance(subtitle_key, str) else "", style="green")
 
     for i, item in enumerate(items, 1):
-        title = str(item.get(title_key, "?") or "?")
+        if callable(title_key):
+            title = str(title_key(item) or "?")
+        else:
+            title = str(item.get(title_key, "?") or "?")
         row = [str(i), title]
         if subtitle_key:
-            row.append(str(item.get(subtitle_key, "") or ""))
+            if callable(subtitle_key):
+                row.append(str(subtitle_key(item) or ""))
+            else:
+                row.append(str(item.get(subtitle_key, "") or ""))
         table.add_row(*row)
 
     console.print(table)
@@ -1092,7 +1104,6 @@ def anime(query, season, ep_str, download, player, quality, info_only):
     query_str = " ".join(query) if query else None
     if not query_str:
         query_str = Prompt.ask("[bold]Search for an[/bold] [magenta]anime[/magenta]")
-
     from .anilist import search_anime
 
     results = search_anime(query_str)
@@ -1106,7 +1117,21 @@ def anime(query, season, ep_str, download, player, quality, info_only):
         sd = m.get("startDate") or {}
         return str(sd.get("year", "")) if sd.get("year") else ""
 
+    ql = query_str.lower().strip()
+    def _relevance(m):
+        t = _title(m).lower()
+        if t == ql:
+            return 0
+        if t.startswith(ql):
+            return 1
+        if ql in t:
+            return 2
+        return 3
+
+    results.sort(key=lambda m: (_relevance(m), _title(m).lower()))
+
     show = _pick_with_arrows(results, _title, _year, "Select an anime:")
+
     if not show:
         return
 
