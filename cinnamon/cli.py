@@ -93,6 +93,9 @@ _UPDATE_CHECK_CACHE = 86400  # 24 hours
 _UPDATE_REPO = "pizza-droid/cinnamon"
 
 
+_UPDATE_CHECK_FALLBACK_DAYS = 7
+
+
 def _check_for_updates():
     try:
         cfg = load_config()
@@ -102,13 +105,16 @@ def _check_for_updates():
 
         import requests
         resp = requests.get(
-            f"https://api.github.com/repos/{_UPDATE_REPO}/releases/latest",
+            f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
             timeout=5,
             headers={"Accept": "application/vnd.github+json"},
         )
         if resp.status_code != 200:
             return
-        latest = resp.json().get("tag_name", "").lstrip("v")
+        tags = resp.json()
+        if not tags:
+            return
+        latest = tags[0].get("name", "").lstrip("v")
         if not latest:
             return
 
@@ -1210,14 +1216,18 @@ def update():
 
     try:
         resp = requests.get(
-            f"https://api.github.com/repos/{_UPDATE_REPO}/releases/latest",
+            f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
             timeout=5,
             headers={"Accept": "application/vnd.github+json"},
         )
         if resp.status_code != 200:
             _print_error("Could not check for updates from GitHub.")
             return
-        latest = resp.json().get("tag_name", "").lstrip("v")
+        tags = resp.json()
+        if not tags:
+            _print_error("No tags found on GitHub.")
+            return
+        latest = tags[0].get("name", "").lstrip("v")
         if not latest:
             _print_error("Could not determine latest version.")
             return
