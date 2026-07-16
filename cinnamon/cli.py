@@ -953,14 +953,17 @@ def download_list():
     for d in all_dls:
         ep = d.get("episode", "")
         season = d.get("season")
-        ep_label = f"S{season}E{ep}" if season and ep else ep
+        ep_label = f"S{season}E{ep}" if season and ep else str(ep)
+        ts = d.get("timestamp", 0)
+        import datetime
+        date_label = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
         table.add_row(
             d.get("id", "?"),
             d.get("title", "?"),
             ep_label,
             d.get("quality", "-"),
             d.get("status", "?"),
-            d.get("timestamp", ""),
+            date_label,
         )
 
     console.print(table)
