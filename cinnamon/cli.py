@@ -248,7 +248,7 @@ def _parse_episode(ep_str):
     return start, None
 
 
-def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download=False):
+def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download=False, translation=None):
     """Play episode(s), then show interactive menu until user quits."""
 
     if ep_end is not None and ep_end > ep_start:
@@ -257,13 +257,13 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
             return
         for ep_num in range(ep_start, ep_end + 1):
             ep_name = f"S{season_num:02d}E{ep_num:02d}"
-            _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download)
+            _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download, translation=translation)
             console.print()
         return
 
     ep_num = ep_start
     while True:
-        proc = _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download)
+        proc = _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download, translation=translation)
 
         if proc is None or info_only or download:
             return
@@ -311,7 +311,7 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
                 quality = Prompt.ask("Quality (480p, 720p, 1080p, best, worst)", default=quality or "best")
 
 
-def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download=False):
+def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download=False, translation=None):
     show_name = show.get("name", "?")
     show_id = show["id"]
 
@@ -334,6 +334,8 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
                 info = {"show": show_name, "tv_id": show_id, "season": season_num, "episode": ep_num}
                 if quality:
                     info["quality"] = quality
+                if translation:
+                    info["translation"] = translation
                 future = pool.submit(scraper_instance.resolve, info)
                 result = future.result(timeout=RESOLVE_TIMEOUT)
     except concurrent.futures.TimeoutError:
@@ -1228,7 +1230,7 @@ def anime(query, season, ep_str, download, player, quality, info_only):
 
     show_dict = {"name": show_name, "id": 0}
     ep_name = f"S{season:02d}E{ep_start:02d}"
-    _play_with_menu(show_dict, season, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download)
+    _play_with_menu(show_dict, season, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download, translation=tt)
 
 
 @cli.command()
