@@ -18,3 +18,5 @@ cinnamon.egg-info/
 
 .vscode/
 .idea/
+
+*.part
