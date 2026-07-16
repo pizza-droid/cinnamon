@@ -1,5 +1,0 @@
-click>=8
-requests>=2
-rich>=13
-questionary>=2
-textual>=8
