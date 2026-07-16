@@ -68,6 +68,9 @@ class TMDBClient:
     def get_tv_details(self, tv_id):
         return self._request(f"/tv/{tv_id}")
 
+    def get_movie_details(self, movie_id):
+        return self._request(f"/movie/{movie_id}")
+
     def get_season_details(self, tv_id, season_number):
         return self._request(f"/tv/{tv_id}/season/{season_number}")
 
