@@ -892,6 +892,12 @@ def resume():
     console.print(table)
 
     if not resume_indices:
+        from .downloads import remove as _track_remove
+        console.print("  [dim]Range downloads cannot be resumed individually. Re-run with -e to download the full range.[/dim]")
+        if Prompt.ask("  Remove these entries?", default="y").strip().lower() in ("y", "yes"):
+            for d in dls:
+                _track_remove(d["id"])
+            _print_success("Cleaned up.")
         return
 
     choice = Prompt.ask("Resume which download?", default=str(resume_indices[0]))
