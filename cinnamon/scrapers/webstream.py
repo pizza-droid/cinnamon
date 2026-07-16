@@ -7,7 +7,7 @@ import requests
 from ..errors import ScraperNetworkError, ScraperNoStreamError, ScraperParseError
 from .base import BaseScraper, ScraperResult
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+from ..player import DEFAULT_UA as UA
 TIMEOUT = 15
 
 

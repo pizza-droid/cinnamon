@@ -5,10 +5,13 @@
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](#)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux%20%7C%20termux-lightgrey)](#)
 
 ## Quick start
 
 You'll need **Python 3.10+** and either [mpv](https://mpv.io) or [VLC](https://videolan.org).
+
+### Install
 
 ```bash
 pip install cinnamon
@@ -16,6 +19,15 @@ cinnamon setup
 ```
 
 The setup wizard asks for a TMDB API key ([free account](https://www.themoviedb.org/signup)), your preferred player, and a color theme.
+
+### Get a player
+
+| Platform | mpv | VLC |
+|---|---|---|
+| **Windows** | `scoop install mpv` or download from [mpv.io](https://mpv.io) | [videolan.org](https://videolan.org) |
+| **macOS** | `brew install mpv` | `brew install --cask vlc` |
+| **Linux** | `apt install mpv` (Debian/Ubuntu) | `apt install vlc` |
+| **Termux** | `pkg install mpv` | `pkg install vlc` |
 
 ### Watch a show
 
@@ -31,11 +43,18 @@ cinnamon search "Chainsaw Man"
 
 ### Download episodes
 
+Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp):
+
+| Platform | Command |
+|---|---|
+| Windows | `scoop install yt-dlp` |
+| macOS | `brew install yt-dlp` |
+| Linux | `pip install yt-dlp` |
+| Termux | `pkg install yt-dlp` |
+
 ```bash
 cinnamon search "Breaking Bad" -d -e 1-5
 ```
-
-Downloads seasons 1–5. Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`scoop install yt-dlp`).
 
 ---
 
@@ -91,7 +110,7 @@ cinnamon config default-scraper torrentio
 
 ## Configuration
 
-Settings are stored in `~/.config/cinnamon/config.json`. Change them anytime:
+Settings are stored in `~/.config/cinnamon/config.json` (Linux/macOS/Termux) or `%APPDATA%/cinnamon/config.json` (Windows). Change them anytime:
 
 ```bash
 cinnamon config default-player mpv

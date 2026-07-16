@@ -1,10 +1,24 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 from .errors import InvalidConfig
 
-CONFIG_DIR = Path.home() / ".config" / "cinnamon"
+
+def _config_dir():
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    elif os.environ.get("TERMUX_VERSION"):
+        base = Path.home() / ".config"
+    elif xdg := os.environ.get("XDG_CONFIG_HOME"):
+        base = Path(xdg)
+    else:
+        base = Path.home() / ".config"
+    return base / "cinnamon"
+
+
+CONFIG_DIR = _config_dir()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SCRAPERS_DIR = CONFIG_DIR / "scrapers"
 

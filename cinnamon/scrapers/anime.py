@@ -6,9 +6,9 @@ from typing import Optional
 import requests
 
 from ..errors import ScraperNetworkError, ScraperNoStreamError, ScraperParseError
+from ..player import DEFAULT_UA as UA
 from .base import BaseScraper, ScraperResult
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0"
 TIMEOUT = 15
 API = "https://api.allanime.day/api"
 

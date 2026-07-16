@@ -213,6 +213,10 @@ setInterval(() => {
   }
 }, 10000);
 
-process.on('SIGINT', () => {
+function shutdown() {
   client.destroy(() => process.exit(0));
-});
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGBREAK', shutdown);

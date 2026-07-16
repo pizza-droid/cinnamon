@@ -7,6 +7,7 @@ from ..errors import (
     ScraperNoStreamError,
     ScraperParseError,
 )
+from ..player import DEFAULT_UA as _UA
 from .base import BaseScraper, ScraperResult
 
 _DOMAINS = [
@@ -17,8 +18,6 @@ _DOMAINS = [
     ("vidsrc.xyz", "https://vidsrc.xyz/embed/tv/{tmdb_id}/{season}/{episode}"),
     ("vidsrc.cc", "https://vidsrc.cc/embed/tv/{tmdb_id}/{season}/{episode}"),
 ]
-
-_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 
 
 class VidSrcScraper(BaseScraper):

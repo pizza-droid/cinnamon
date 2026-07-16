@@ -3,6 +3,7 @@ from typing import Optional
 import requests
 
 from ..errors import ScraperNoStreamError, ScraperNetworkError
+from ..player import DEFAULT_UA as UA
 from .base import BaseScraper, ScraperResult
 
 TORRENTIO_BASE = "https://torrentio.strem.fun"
@@ -78,7 +79,7 @@ class TorrentioScraper(BaseScraper):
         try:
             from ..config import get_tmdb_api_key
             api_key = get_tmdb_api_key()
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            headers = {"User-Agent": UA}
             r = requests.get(
                 f"https://api.themoviedb.org/3/tv/{tmdb_id}",
                 headers=headers,
@@ -94,7 +95,7 @@ class TorrentioScraper(BaseScraper):
     def _fetch_streams(self, imdb_id: str, season: int, episode: int) -> list:
         try:
             url = f"{TORRENTIO_BASE}/stream/series/{imdb_id}:{season}:{episode}.json"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            headers = {"User-Agent": UA}
             r = requests.get(url, headers=headers, timeout=15)
             r.raise_for_status()
             data = r.json()

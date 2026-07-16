@@ -8,22 +8,80 @@ import time
 from .errors import PlayerNotFoundError, PlayerLaunchError
 
 
+def _in_termux():
+    return bool(os.environ.get("TERMUX_VERSION")) or os.path.isdir("/data/data/com.termux")
+
+
+def _platform_os():
+    if _in_termux():
+        return "termux"
+    return sys.platform
+
+
+def _platform_ua():
+    if _platform_os() == "win32":
+        return "Windows NT 10.0; Win64; x64"
+    if _platform_os() == "darwin":
+        return "Macintosh; Intel Mac OS X 10_15_7"
+    if _platform_os() == "termux":
+        return "Linux; Android 10; Termux"
+    return "X11; Linux x86_64"
+
+
+DEFAULT_UA = f"Mozilla/5.0 ({_platform_ua()}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
+
 def _search_path(names):
     for name in names:
         path = shutil.which(name)
         if path:
             return path
 
-    common = [
-        r"C:\Program Files\mpv\mpv.exe",
-        r"C:\Tools\mpv\mpv.exe",
-        os.path.expandvars(r"%USERPROFILE%\scoop\apps\mpv\current\mpv.exe"),
-        os.path.expandvars(r"%USERPROFILE%\mpv\mpv.exe"),
-        os.path.expandvars(r"%LOCALAPPDATA%\Programs\mpv\mpv.exe"),
-        os.path.expandvars(r"%HOMEDRIVE%%HOMEPATH%\mpv\mpv.exe"),
-        os.path.expandvars(r"%ProgramFiles%\VideoLAN\VLC\vlc.exe"),
-        os.path.expandvars(r"%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe"),
-    ]
+    common = []
+
+    if _platform_os() == "win32":
+        common += [
+            r"C:\Program Files\mpv\mpv.exe",
+            r"C:\Tools\mpv\mpv.exe",
+            os.path.expandvars(r"%USERPROFILE%\scoop\apps\mpv\current\mpv.exe"),
+            os.path.expandvars(r"%USERPROFILE%\mpv\mpv.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\mpv\mpv.exe"),
+            os.path.expandvars(r"%HOMEDRIVE%%HOMEPATH%\mpv\mpv.exe"),
+            os.path.expandvars(r"%ProgramFiles%\VideoLAN\VLC\vlc.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe"),
+        ]
+    elif _platform_os() == "darwin":
+        home = os.path.expanduser("~")
+        common += [
+            "/Applications/VLC.app/Contents/MacOS/VLC",
+            "/usr/local/bin/mpv",
+            "/usr/local/bin/vlc",
+            "/opt/homebrew/bin/mpv",
+            "/opt/homebrew/bin/vlc",
+            "/opt/homebrew/bin/yt-dlp",
+            os.path.join(home, "homebrew", "bin", "mpv"),
+            os.path.join(home, "homebrew", "bin", "vlc"),
+            os.path.join(home, "homebrew", "bin", "yt-dlp"),
+        ]
+    elif _platform_os() == "termux":
+        prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+        common += [
+            os.path.join(prefix, "bin", "mpv"),
+            os.path.join(prefix, "bin", "vlc"),
+            os.path.join(prefix, "bin", "yt-dlp"),
+        ]
+    else:
+        common += [
+            "/usr/bin/mpv",
+            "/usr/bin/vlc",
+            "/usr/bin/yt-dlp",
+            "/usr/local/bin/mpv",
+            "/usr/local/bin/vlc",
+            "/usr/local/bin/yt-dlp",
+            "/snap/bin/mpv",
+            "/snap/bin/vlc",
+        ]
+
     for candidate in common:
         if os.path.isfile(candidate):
             return candidate
@@ -43,14 +101,42 @@ def _ytdlp_path():
         path = shutil.which(name)
         if path:
             return path
-    candidates = [
-        os.path.expandvars(r"%USERPROFILE%\scoop\apps\yt-dlp\current\yt-dlp.exe"),
-        os.path.expandvars(r"%LOCALAPPDATA%\Programs\yt-dlp\yt-dlp.exe"),
-    ]
+
+    candidates = []
+    if _platform_os() == "win32":
+        candidates = [
+            os.path.expandvars(r"%USERPROFILE%\scoop\apps\yt-dlp\current\yt-dlp.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\yt-dlp\yt-dlp.exe"),
+        ]
+    elif _platform_os() == "darwin":
+        candidates = [
+            "/opt/homebrew/bin/yt-dlp",
+            "/usr/local/bin/yt-dlp",
+        ]
+    elif _platform_os() == "termux":
+        prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+        candidates = [os.path.join(prefix, "bin", "yt-dlp")]
+    else:
+        candidates = [
+            "/usr/bin/yt-dlp",
+            "/usr/local/bin/yt-dlp",
+            "/snap/bin/yt-dlp",
+        ]
+
     for c in candidates:
         if os.path.isfile(c):
             return c
     return None
+
+
+def ytdlp_install_hint():
+    if _platform_os() == "win32":
+        return "scoop install yt-dlp"
+    if _platform_os() == "darwin":
+        return "brew install yt-dlp"
+    if _platform_os() == "termux":
+        return "pkg install yt-dlp"
+    return "pip install yt-dlp"
 
 
 def play_vlc(url, title="", referer=None):

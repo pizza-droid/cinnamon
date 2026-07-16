@@ -33,7 +33,7 @@ from .errors import (
     TMDBNotFoundError,
     TMDBRateLimitError,
 )
-from .player import download_video, play
+from .player import download_video, play, ytdlp_install_hint
 from .scrapers import get_scraper, list_scrapers
 from .tmdb import TMDBClient
 
@@ -314,7 +314,7 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         try:
             download_video(result.m3u8_url, title=result.title, referer=result.referer, track_id=track_id)
         except PlayerNotFoundError:
-            _print_error("yt-dlp not found. Install it with: scoop install yt-dlp")
+            _print_error(f"yt-dlp not found. Install it with: {ytdlp_install_hint()}")
             from .downloads import remove as _track_remove
             _track_remove(track_id)
         except PlayerLaunchError as e:
@@ -800,7 +800,7 @@ def resume():
     try:
         download_video(url, title=title, referer=referer, track_id=track_id)
     except PlayerNotFoundError:
-        _print_error("yt-dlp not found. Install it with: scoop install yt-dlp")
+        _print_error(f"yt-dlp not found. Install it with: {ytdlp_install_hint()}")
         _track_update(track_id, status="interrupted")
     except PlayerLaunchError as e:
         _print_error(str(e))
