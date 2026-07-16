@@ -1,0 +1,315 @@
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+from .errors import PlayerNotFoundError, PlayerLaunchError
+
+
+def _search_path(names):
+    for name in names:
+        path = shutil.which(name)
+        if path:
+            return path
+
+    common = [
+        r"C:\Program Files\mpv\mpv.exe",
+        r"C:\Tools\mpv\mpv.exe",
+        os.path.expandvars(r"%USERPROFILE%\scoop\apps\mpv\current\mpv.exe"),
+        os.path.expandvars(r"%USERPROFILE%\mpv\mpv.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\mpv\mpv.exe"),
+        os.path.expandvars(r"%HOMEDRIVE%%HOMEPATH%\mpv\mpv.exe"),
+        os.path.expandvars(r"%ProgramFiles%\VideoLAN\VLC\vlc.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe"),
+    ]
+    for candidate in common:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _vlc_path():
+    return _search_path(["vlc.exe", "vlc"])
+
+
+def _mpv_path():
+    return _search_path(["mpv.exe", "mpv"])
+
+
+def _ytdlp_path():
+    for name in ("yt-dlp.exe", "yt-dlp"):
+        path = shutil.which(name)
+        if path:
+            return path
+    candidates = [
+        os.path.expandvars(r"%USERPROFILE%\scoop\apps\yt-dlp\current\yt-dlp.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\yt-dlp\yt-dlp.exe"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def play_vlc(url, title="", referer=None):
+    exe = _vlc_path()
+    if not exe:
+        raise PlayerNotFoundError("vlc")
+    cmd = [exe, "--play-and-exit", f"--meta-title={title}"]
+    if referer:
+        cmd.append(f"--http-referrer={referer}")
+    cmd.append(url)
+    try:
+        return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        raise PlayerLaunchError("VLC", str(e))
+
+
+def play_mpv(url, title="", referer=None):
+    exe = _mpv_path()
+    if not exe:
+        raise PlayerNotFoundError("mpv")
+    cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes"]
+    if referer:
+        cmd += ["--http-header-fields=Referer: " + referer]
+    cmd.append(url)
+    try:
+        return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        raise PlayerLaunchError("mpv", str(e))
+
+
+def _streamer_path():
+    return os.path.join(os.path.dirname(__file__), "webtorrent_stream.mjs")
+
+
+def _play_magnet(url, title="", player="auto", season=None, episode=None):
+    mpv = _mpv_path()
+    vlc = _vlc_path()
+
+    if player == "mpv":
+        if not mpv:
+            raise PlayerNotFoundError("mpv")
+        player_fn = lambda u: play_mpv(u, title)
+        exe_dir = os.path.dirname(mpv)
+    elif player == "vlc":
+        if not vlc:
+            raise PlayerNotFoundError("vlc")
+        player_fn = lambda u: play_vlc(u, title)
+        exe_dir = os.path.dirname(vlc)
+    elif player == "auto":
+        if mpv:
+            player_fn = lambda u: play_mpv(u, title)
+            exe_dir = os.path.dirname(mpv)
+        elif vlc:
+            player_fn = lambda u: play_vlc(u, title)
+            exe_dir = os.path.dirname(vlc)
+        else:
+            raise PlayerNotFoundError("auto")
+    else:
+        raise ValueError(f"Unknown player: {player}")
+
+    env = os.environ.copy()
+    env["PATH"] = exe_dir + os.pathsep + env["PATH"]
+
+    node = shutil.which("node") or shutil.which("node.exe")
+    if not node:
+        raise PlayerNotFoundError("node")
+
+    port = 8888
+    args = [node, _streamer_path(), url, str(port)]
+    if season is not None:
+        args.append(str(season))
+    if episode is not None:
+        args.append(str(episode))
+
+    proc = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        bufsize=1, text=True, env=env,
+    )
+
+    stream_url = None
+    deadline = time.monotonic() + 60
+
+    try:
+        for line in proc.stdout:
+            if time.monotonic() > deadline:
+                proc.kill()
+                raise PlayerLaunchError("streamer", "Timed out waiting for stream URL")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            status = msg.get("status")
+            if status == "dht_bootstrapping":
+                print("  DHT bootstrapping...", file=sys.stderr)
+            elif status == "dht_ready":
+                print(f"  DHT ready ({msg.get('nodes', 0)} nodes)", file=sys.stderr)
+            elif status == "adding_torrent":
+                print("  Adding torrent...", file=sys.stderr)
+            elif status == "metadata":
+                print(f"  Torrent: {msg.get('name')}", file=sys.stderr)
+                print(f"  Files: {msg.get('numFiles')}", file=sys.stderr)
+                print(f"  Selected: {msg.get('selectedFile')}", file=sys.stderr)
+            elif status == "ready":
+                stream_url = msg.get("streamUrl")
+                port = msg.get("port")
+                file_name = msg.get("file")
+                had_peer = msg.get("hadPeer")
+                print(f"  Streaming: {file_name}", file=sys.stderr)
+                print(f"  URL: {stream_url}", file=sys.stderr)
+                if not had_peer:
+                    print("  Waiting for peers...", file=sys.stderr)
+                break
+            elif status == "progress":
+                downloaded = msg.get("downloaded", 0)
+                num_peers = msg.get("numPeers", 0)
+                print(f"  Progress: {msg.get('progress', 0)*100:.0f}%  ({downloaded//1048576} MB) peers: {num_peers}", file=sys.stderr)
+            elif msg.get("type") == "warn":
+                print(f"  Warn: {msg.get('msg')}", file=sys.stderr)
+            elif msg.get("type") == "error":
+                print(f"  Error: {msg.get('msg')}", file=sys.stderr)
+
+        if not stream_url:
+            proc.kill()
+            proc.wait()
+            raise PlayerLaunchError(
+                "streamer",
+                "No peers found for this torrent. The source may have no seeders right now.\n"
+                "  Try again later, pick a different episode, or use --scraper vidsrc for HTTP streaming."
+            )
+
+        player_fn(stream_url)
+
+        # Keep reading progress lines until the player exits (or streamer dies)
+        for line in proc.stdout:
+            try:
+                msg = json.loads(line.strip())
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if msg.get("status") == "progress":
+                downloaded = msg.get("downloaded", 0)
+                num_peers = msg.get("numPeers", 0)
+                print(f"  Progress: {msg.get('progress', 0)*100:.0f}%  ({downloaded//1048576} MB) peers: {num_peers}", file=sys.stderr)
+    except:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        proc.wait()
+        raise
+
+
+def download_video(url, title="", referer=None, output_dir=".", track_id=None):
+    """Download an HLS stream using yt-dlp with a clean progress bar."""
+    from .downloads import update as _track_update
+
+    exe = _ytdlp_path()
+    if not exe:
+        raise PlayerNotFoundError("yt-dlp")
+
+    safe = "".join(c if c.isalnum() or c in " .-_()" else "_" for c in title) or "video"
+    outtmpl = os.path.join(output_dir, f"{safe}.%(ext)s")
+
+    cmd = [exe, "--no-mtime", "--quiet", "--no-warnings", "--no-progress", "-o", outtmpl]
+    if referer:
+        cmd += ["--referer", referer]
+    cmd.append(url)
+
+    if track_id:
+        _track_update(track_id, status="downloading")
+
+    from rich.console import Console
+    from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, TransferSpeedColumn
+
+    _console = Console(stderr=True)
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=_console,
+    )
+
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, bufsize=1,
+    )
+
+    task_id = None
+
+    try:
+        for line in proc.stderr:
+            if "[download]" not in line:
+                continue
+
+            import re
+            m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
+            if not m:
+                continue
+
+            pct = float(m.group(1))
+            size_val = float(m.group(2))
+            unit = m.group(3)
+
+            if unit == "KiB":
+                total_bytes = size_val * 1024
+            elif unit == "MiB":
+                total_bytes = size_val * 1024 * 1024
+            elif unit == "GiB":
+                total_bytes = size_val * 1024 * 1024 * 1024
+            else:
+                total_bytes = size_val
+
+            if task_id is None and total_bytes:
+                task_id = progress.add_task(title, total=total_bytes)
+
+            if task_id is not None and total_bytes:
+                progress.update(task_id, completed=total_bytes * pct / 100, refresh=True)
+
+        proc.wait()
+
+        if proc.returncode == 0:
+            if track_id:
+                _track_update(track_id, status="completed")
+            _console.print(f"[green]Done[/green] — {safe}")
+        else:
+            raise PlayerLaunchError("yt-dlp", f"exit code {proc.returncode}")
+
+    except KeyboardInterrupt:
+        _console.print()
+        if track_id:
+            _track_update(track_id, status="interrupted")
+        proc.kill()
+        proc.wait()
+        raise
+    except PlayerLaunchError:
+        if track_id:
+            _track_update(track_id, status="error")
+        raise
+    finally:
+        progress.stop()
+
+
+def play(url, title="", player="auto", season=None, episode=None, referer=None):
+    if url.startswith("magnet:"):
+        return _play_magnet(url, title, player, season, episode)
+    if player == "auto":
+        if _mpv_path():
+            return play_mpv(url, title, referer)
+        if _vlc_path():
+            return play_vlc(url, title, referer)
+        raise PlayerNotFoundError("auto")
+    if player == "vlc":
+        return play_vlc(url, title, referer)
+    if player == "mpv":
+        return play_mpv(url, title, referer)
+    raise ValueError(f"Unknown player: {player}. Use vlc, mpv, or auto.")
