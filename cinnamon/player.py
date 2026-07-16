@@ -35,6 +35,10 @@ def _search_path(names):
     for name in names:
         path = shutil.which(name)
         if path:
+            if _in_termux():
+                # Running the absolute Termux path (e.g. /data/data/com.termux/...)
+                # can fail with Exec format error; invoke via PATH name instead.
+                return name
             return path
 
     common = []
@@ -100,6 +104,8 @@ def _ytdlp_path():
     for name in ("yt-dlp.exe", "yt-dlp"):
         path = shutil.which(name)
         if path:
+            if _in_termux():
+                return name
             return path
 
     candidates = []
