@@ -99,17 +99,34 @@ _UPDATE_CHECK_FALLBACK_DAYS = 7
 
 def _latest_version():
     import requests
+
+    # Primary: GitHub Tags API (includes lightweight tags, not just releases).
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
+            timeout=8,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        if resp.status_code == 200:
+            tags = resp.json()
+            if tags:
+                tag = tags[0].get("name", "")
+                if tag:
+                    return tag[1:] if tag.startswith("v") else tag
+    except Exception:
+        pass
+
+    # Fallback: parse version from pyproject.toml on the default branch.
     try:
         resp = requests.get(
             f"https://raw.githubusercontent.com/{_UPDATE_REPO}/master/pyproject.toml",
-            timeout=5,
+            timeout=8,
         )
-        if resp.status_code != 200:
-            return None
-        for line in resp.text.splitlines():
-            line = line.strip()
-            if line.startswith("version = "):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
+        if resp.status_code == 200:
+            for line in resp.text.splitlines():
+                line = line.strip()
+                if line.startswith("version = "):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
     except Exception:
         pass
     return None
@@ -124,23 +141,30 @@ def _check_for_updates():
 
         latest = _latest_version()
         if not latest:
+            # Network failed — don't cache, retry next run.
             return
-
-        cfg["_update_check"] = time.time()
-        save_config(cfg)
 
         current = __version__
-        if latest == current:
+        try:
+            cur = tuple(map(int, current.split(".")))
+            lat = tuple(map(int, latest.split(".")))
+        except ValueError:
+            cfg["_update_check"] = time.time()
+            save_config(cfg)
             return
 
-        cur = tuple(map(int, current.split(".")))
-        lat = tuple(map(int, latest.split(".")))
-        if lat > cur:
-            t = get_theme()
-            console.print(
-                f"  [{t['info']}]Update available:[/] {current} → [bold]{latest}[/]  "
-                f"[dim](run[/dim] [cyan]cinnamon update[/cyan][dim])[/dim]"
-            )
+        if lat <= cur:
+            # Up to date: record check so we don't nag for a while.
+            cfg["_update_check"] = time.time()
+            save_config(cfg)
+            return
+
+        # Update available: remind every run (don't cache the timestamp).
+        t = get_theme()
+        console.print(
+            f"  [{t['info']}]Update available:[/] {current} → [bold]{latest}[/]  "
+            f"[dim](run[/dim] [cyan]cinnamon update[/cyan][dim])[/dim]"
+        )
     except Exception:
         pass
 
@@ -837,7 +861,8 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
 
 @cli.command()
 @click.option("--query", help="Search query (omit for interactive)")
-@click.option("--id", "tv_id", type=int, help="TMDB show ID")
+@click.option("--id", "tmdb_id", type=int, help="TMDB show/movie ID")
+@click.option("-t", "--type", "media_type", type=click.Choice(["tv", "movie"]), default="tv", help="tv or movie")
 @click.option("-s", "--season", type=int, help="Season number")
 @click.option("-e", "--episode", "ep_str", help="Episode number or range (e.g. 1 or 1-10)")
 @click.option("--scraper", help="Scraper name")
@@ -846,15 +871,33 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
 @click.option("--info-only", is_flag=True, help="Show the m3u8 URL without playing")
 @click.option("-q", "--quality", help="Video quality: 480p, 720p, 1080p, best, worst")
 @_handle_tmdb_error
-def watch(query, tv_id, season, ep_str, scraper, player, download, info_only, quality):
+def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download, info_only, quality):
     """Browse episodes interactively and play one."""
     _check_for_updates()
     tmdb = _get_tmdb()
 
     ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
 
-    if tv_id:
-        show = tmdb.get_tv_details(tv_id)
+    if media_type == "movie":
+        if not tmdb_id and query:
+            results = tmdb.search_movie(query).get("results", [])
+            show = _pick_with_arrows(results, "title", "release_date", "Select a movie:")
+            if not show:
+                return
+            tmdb_id = show["id"]
+        elif tmdb_id:
+            show = tmdb.get_movie_details(tmdb_id)
+        else:
+            query = Prompt.ask("Search for a movie")
+            results = tmdb.search_movie(query).get("results", [])
+            show = _pick_with_arrows(results, "title", "release_date", "Select a movie:")
+            if not show:
+                return
+        _play_movie(show, scraper, player, quality, info_only, download)
+        return
+
+    if tmdb_id:
+        show = tmdb.get_tv_details(tmdb_id)
         show_name = show.get("name", "?")
         console.print(f"  [bold]{show_name}[/bold]")
         if scraper is None and _is_anime(show):

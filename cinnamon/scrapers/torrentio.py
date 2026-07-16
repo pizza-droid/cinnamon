@@ -44,24 +44,31 @@ class TorrentioScraper(BaseScraper):
         return []
 
     def resolve(self, episode_info):
-        tmdb_id = episode_info.get("tv_id") or episode_info.get("tmdb_id")
+        media_type = episode_info.get("media_type", "tv")
+        tmdb_id = episode_info.get("tv_id") or episode_info.get("tmdb_id") or episode_info.get("movie_id")
         season = episode_info.get("season", 1)
         episode = episode_info.get("episode", 1)
         show_name = episode_info.get("show", "?")
 
         if not tmdb_id:
             from ..errors import ScraperParseError
-            raise ScraperParseError(self.name, "Missing tv_id/tmdb_id in episode_info")
+            raise ScraperParseError(self.name, "Missing tmdb_id/movie_id/tv_id in episode_info")
 
-        imdb_id = self._get_imdb_id(tmdb_id)
+        imdb_id = self._get_imdb_id(tmdb_id, media_type)
         if not imdb_id:
             raise ScraperNoStreamError(self.name,
                 f"Could not find IMDb ID for TMDB ID {tmdb_id}")
 
-        streams = self._fetch_streams(imdb_id, season, episode)
+        if media_type == "movie":
+            streams = self._fetch_movie_streams(imdb_id)
+            label = f"{show_name} (movie torrent)"
+        else:
+            streams = self._fetch_streams(imdb_id, season, episode)
+            label = f"{show_name} S{season:02d}E{episode:02d}"
+
         if not streams:
             raise ScraperNoStreamError(self.name,
-                f"No torrents found for {show_name} S{season:02d}E{episode:02d}")
+                f"No torrents found for {label}")
 
         best = max(streams, key=lambda s: _quality_from_name(s.get("name", "")))
         info_hash = best["infoHash"]
@@ -71,17 +78,18 @@ class TorrentioScraper(BaseScraper):
         _, quality_label = _quality_from_name(best.get("name", ""))
 
         return ScraperResult(
-            title=f"{show_name} S{season:02d}E{episode:02d} ({quality_label} torrent)",
+            title=f"{label} ({quality_label} torrent)",
             m3u8_url=magnet,
         )
 
-    def _get_imdb_id(self, tmdb_id: int) -> Optional[str]:
+    def _get_imdb_id(self, tmdb_id: int, media_type: str = "tv") -> Optional[str]:
         try:
             from ..config import get_tmdb_api_key
             api_key = get_tmdb_api_key()
             headers = {"User-Agent": UA}
+            tmdb_type = "movie" if media_type == "movie" else "tv"
             r = requests.get(
-                f"https://api.themoviedb.org/3/tv/{tmdb_id}",
+                f"https://api.themoviedb.org/3/{tmdb_type}/{tmdb_id}",
                 headers=headers,
                 params={"api_key": api_key, "append_to_response": "external_ids"},
                 timeout=15,
@@ -95,6 +103,17 @@ class TorrentioScraper(BaseScraper):
     def _fetch_streams(self, imdb_id: str, season: int, episode: int) -> list:
         try:
             url = f"{TORRENTIO_BASE}/stream/series/{imdb_id}:{season}:{episode}.json"
+            headers = {"User-Agent": UA}
+            r = requests.get(url, headers=headers, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            return data.get("streams", [])
+        except requests.RequestException as e:
+            raise ScraperNetworkError(self.name, str(e))
+
+    def _fetch_movie_streams(self, imdb_id: str) -> list:
+        try:
+            url = f"{TORRENTIO_BASE}/stream/movie/{imdb_id}.json"
             headers = {"User-Agent": UA}
             r = requests.get(url, headers=headers, timeout=15)
             r.raise_for_status()

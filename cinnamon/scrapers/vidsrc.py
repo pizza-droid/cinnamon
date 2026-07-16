@@ -28,22 +28,37 @@ class VidSrcScraper(BaseScraper):
         return []
 
     def resolve(self, episode_info):
-        tmdb_id = episode_info.get("tv_id") or episode_info.get("tmdb_id")
+        media_type = episode_info.get("media_type", "tv")
+        tmdb_id = episode_info.get("tv_id") or episode_info.get("tmdb_id") or episode_info.get("movie_id")
         show = episode_info.get("show", "?")
         season = episode_info.get("season", 1)
         episode = episode_info.get("episode", 1)
 
         if not tmdb_id:
-            raise ScraperParseError(self.name, "Missing tv_id/tmdb_id in episode_info")
+            raise ScraperParseError(self.name, "Missing tmdb_id/movie_id/tv_id in episode_info")
+
+        if media_type == "movie":
+            embed_urls = [
+                f"https://{domain}/embed/movie/{tmdb_id}"
+                for domain, _ in _DOMAINS
+            ]
+        else:
+            embed_urls = [
+                url_template.format(tmdb_id=tmdb_id, season=season, episode=episode)
+                for _, url_template in _DOMAINS
+            ]
 
         last_error = None
-        for domain, url_template in _DOMAINS:
-            embed_url = url_template.format(tmdb_id=tmdb_id, season=season, episode=episode)
+        for embed_url in embed_urls:
             try:
                 m3u8_url = _playwright_resolve(embed_url, timeout=30)
                 if m3u8_url:
+                    if media_type == "movie":
+                        title = f"{show}"
+                    else:
+                        title = f"{show} S{season:02d}E{episode:02d}"
                     return ScraperResult(
-                        title=f"{show} S{season:02d}E{episode:02d}",
+                        title=title,
                         m3u8_url=m3u8_url,
                         referer=embed_url,
                         user_agent=_UA,
