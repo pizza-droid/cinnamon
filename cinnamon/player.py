@@ -218,7 +218,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     safe = "".join(c if c.isalnum() or c in " .-_()" else "_" for c in title) or "video"
     outtmpl = os.path.join(output_dir, f"{safe}.%(ext)s")
 
-    cmd = [exe, "--no-mtime", "--quiet", "--no-warnings", "--no-progress", "-o", outtmpl]
+    cmd = [exe, "--no-mtime", "--no-warnings", "-o", outtmpl]
     if referer:
         cmd += ["--referer", referer]
     cmd.append(url)
@@ -226,10 +226,11 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     if track_id:
         _track_update(track_id, status="downloading")
 
-    from rich.console import Console
+    _console = Console(stderr=True)
+    _console.print(f"[dim]Downloading to {os.path.abspath(output_dir)}[/dim]")
+
     from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, TransferSpeedColumn
 
-    _console = Console(stderr=True)
     progress = Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
