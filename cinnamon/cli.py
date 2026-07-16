@@ -1,4 +1,6 @@
 import concurrent.futures
+import subprocess
+import time
 import webbrowser
 from functools import wraps
 
@@ -83,6 +85,50 @@ def _print_info(title, detail=None):
         console.print(Panel(f"[{t['info']}]{title}[/{t['info']}]\n[{t['dim']}]{detail}[/{t['dim']}]", border_style=t["info"]))
     else:
         console.print(Panel(f"[{t['info']}]{title}[/{t['info']}]", border_style=t["info"]))
+
+
+_UPDATE_CHECK_CACHE = 86400  # 24 hours
+
+
+_UPDATE_REPO = "pizza-droid/cinnamon"
+
+
+def _check_for_updates():
+    try:
+        cfg = load_config()
+        last_check = cfg.get("_update_check", 0)
+        if time.time() - last_check < _UPDATE_CHECK_CACHE:
+            return
+
+        import requests
+        resp = requests.get(
+            f"https://api.github.com/repos/{_UPDATE_REPO}/releases/latest",
+            timeout=5,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        if resp.status_code != 200:
+            return
+        latest = resp.json().get("tag_name", "").lstrip("v")
+        if not latest:
+            return
+
+        cfg["_update_check"] = time.time()
+        save_config(cfg)
+
+        current = __version__
+        if latest == current:
+            return
+
+        cur = tuple(map(int, current.split(".")))
+        lat = tuple(map(int, latest.split(".")))
+        if lat > cur:
+            t = get_theme()
+            console.print(
+                f"  [{t['info']}]Update available:[/] {current} → [bold]{latest}[/]  "
+                f"[dim](run[/dim] [cyan]cinnamon update[/cyan][dim])[/dim]"
+            )
+    except Exception:
+        pass
 
 
 def _get_tmdb():
@@ -565,6 +611,7 @@ def _theme_preview(name):
 @_handle_tmdb_error
 def search(query, media_type, season, ep_str, scraper, player, quality, download, info_only):
     """Search for a show, pick one, and watch it."""
+    _check_for_updates()
     tmdb = _get_tmdb()
 
     ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
@@ -629,6 +676,7 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
 @_handle_tmdb_error
 def watch(query, tv_id, season, ep_str, scraper, player, download, info_only, quality):
     """Browse episodes interactively and play one."""
+    _check_for_updates()
     tmdb = _get_tmdb()
 
     ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
@@ -1021,6 +1069,63 @@ def install(name):
         _print_success(f"Installed [bold]{name}[/bold] scraper", f"Saved to {dst}")
     except Exception as e:
         _print_error(f"Failed to install {name}", str(e))
+
+
+@cli.command()
+def update():
+    """Check for and install the latest version of cinnamon from GitHub."""
+    import requests
+
+    theme = get_theme()
+
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{_UPDATE_REPO}/releases/latest",
+            timeout=5,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        if resp.status_code != 200:
+            _print_error("Could not check for updates from GitHub.")
+            return
+        latest = resp.json().get("tag_name", "").lstrip("v")
+        if not latest:
+            _print_error("Could not determine latest version.")
+            return
+    except Exception as e:
+        _print_error("Failed to check for updates.", str(e))
+        return
+
+    current = __version__
+    cur = tuple(map(int, current.split(".")))
+    lat = tuple(map(int, latest.split(".")))
+
+    if lat <= cur:
+        _print_success(f"Already up to date ({current}).")
+        return
+
+    console.print(f"  [{theme['info']}]Updating:[/] {current} → [bold]{latest}[/bold]")
+    console.print()
+
+    url = f"https://github.com/{_UPDATE_REPO}/archive/refs/tags/v{latest}.tar.gz"
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "pip", "install", "--upgrade", url],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        for line in proc.stdout:
+            console.print(f"  {line.rstrip()}")
+        proc.wait()
+
+        if proc.returncode == 0:
+            cfg = load_config()
+            cfg["_update_check"] = 0
+            save_config(cfg)
+            _print_success(f"Updated to {latest}!")
+        else:
+            _print_error(f"Update failed (exit code {proc.returncode}).")
+    except Exception as e:
+        _print_error("Update failed.", str(e))
 
 
 # ---------------------------------------------------------------------------

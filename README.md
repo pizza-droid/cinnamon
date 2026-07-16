@@ -68,6 +68,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 | `cinnamon resume` | Continue an interrupted download |
 | `cinnamon scrapers` | See available streaming sources |
 | `cinnamon install <name>` | Add an optional scraper (vidsrc, torrentio) |
+| `cinnamon update` | Check for and install the latest version |
 | `cinnamon config show` | View your settings |
 | `cinnamon tui` | Full-screen mode |
 
