@@ -173,12 +173,17 @@ def _termux_ensure_mpv_conf():
         pass
 
 
-def _termux_open(url, app):
+def _termux_open(url, app, referer=None, user_agent=None):
     """Launch an Android media app via an explicit `am start` VIEW intent.
 
     On Termux, mpv/vlc are Android apps, not CLI binaries. Relying on the
     pkg wrapper scripts is unreliable (VLC in particular never opens), so we
     invoke the activity manager directly.
+
+    When a referer (or custom UA) is required, the URL is served through a
+    tiny local proxy that injects those headers — many direct hosts
+    (e.g. mp4upload) block hotlinked requests that lack the Referer, which
+    would otherwise make the Android player fail to open the file.
     """
     components = {
         "mpv": "is.xyz.mpv/.MPVActivity",
@@ -189,6 +194,10 @@ def _termux_open(url, app):
         raise PlayerLaunchError(app, f"Unknown Termux app: {app}")
     if app == "mpv":
         _termux_ensure_mpv_conf()
+
+    if referer or user_agent:
+        url = _termux_proxy_url(url, referer, user_agent)
+
     cmd = f'am start --user 0 -a android.intent.action.VIEW -d "{url}" -n {comp}'
     try:
         return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -196,12 +205,61 @@ def _termux_open(url, app):
         raise PlayerLaunchError(app, str(e))
 
 
+def _termux_proxy_url(target_url, referer=None, user_agent=None):
+    """Start a local HTTP proxy that forwards to target_url with injected
+    headers, and return the local URL to hand to the Android player."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+    import urllib.request
+
+    _PROXY_HEADERS = {}
+    if referer:
+        _PROXY_HEADERS["Referer"] = referer
+    if user_agent:
+        _PROXY_HEADERS["User-Agent"] = user_agent
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            try:
+                req = urllib.request.Request(target_url, headers=_PROXY_HEADERS)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    self.send_response(resp.status)
+                    length = resp.headers.get("Content-Length")
+                    ctype = resp.headers.get("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Type", ctype)
+                    if length:
+                        self.send_header("Content-Length", length)
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        try:
+                            self.wfile.write(chunk)
+                        except (BrokenPipeError, ConnectionResetError):
+                            break
+            except Exception:
+                try:
+                    self.send_error(502)
+                except Exception:
+                    pass
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{port}/video.mp4"
+
+
 def play_vlc(url, title="", referer=None):
     exe = _vlc_path()
     if not exe:
         raise PlayerNotFoundError("vlc")
     if _in_termux():
-        return _termux_open(url, "vlc")
+        return _termux_open(url, "vlc", referer=referer, user_agent=DEFAULT_UA)
     cmd = [exe, "--play-and-exit", f"--meta-title={title}"]
     if referer:
         cmd.append(f"--http-referrer={referer}")
@@ -218,7 +276,7 @@ def play_mpv(url, title="", referer=None):
     if not exe:
         raise PlayerNotFoundError("mpv")
     if _in_termux():
-        return _termux_open(url, "mpv")
+        return _termux_open(url, "mpv", referer=referer, user_agent=DEFAULT_UA)
     cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
