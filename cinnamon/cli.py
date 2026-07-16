@@ -1,5 +1,4 @@
 import concurrent.futures
-import os
 import subprocess
 import time
 import webbrowser
@@ -97,17 +96,22 @@ _UPDATE_REPO = "pizza-droid/cinnamon"
 _UPDATE_CHECK_FALLBACK_DAYS = 7
 
 
-def _gh_headers():
-    h = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN")
-    if not token:
-        try:
-            token = subprocess.check_output(["gh", "auth", "token"], text=True, timeout=3).strip()
-        except Exception:
-            pass
-    if token:
-        h["Authorization"] = f"Bearer {token}"
-    return h
+def _latest_version():
+    import requests
+    try:
+        resp = requests.get(
+            f"https://raw.githubusercontent.com/{_UPDATE_REPO}/master/pyproject.toml",
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if line.startswith("version = "):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return None
 
 
 def _check_for_updates():
@@ -117,18 +121,7 @@ def _check_for_updates():
         if time.time() - last_check < _UPDATE_CHECK_CACHE:
             return
 
-        import requests
-        resp = requests.get(
-            f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
-            timeout=5,
-            headers=_gh_headers(),
-        )
-        if resp.status_code != 200:
-            return
-        tags = resp.json()
-        if not tags:
-            return
-        latest = tags[0].get("name", "").lstrip("v")
+        latest = _latest_version()
         if not latest:
             return
 
@@ -1250,29 +1243,11 @@ def anime(query, season, ep_str, download, player, quality, info_only):
 @cli.command()
 def update():
     """Check for and install the latest version of cinnamon from GitHub."""
-    import requests
-
     theme = get_theme()
 
-    try:
-        resp = requests.get(
-            f"https://api.github.com/repos/{_UPDATE_REPO}/tags",
-            timeout=5,
-            headers=_gh_headers(),
-        )
-        if resp.status_code != 200:
-            _print_error("Could not check for updates from GitHub.")
-            return
-        tags = resp.json()
-        if not tags:
-            _print_error("No tags found on GitHub.")
-            return
-        latest = tags[0].get("name", "").lstrip("v")
-        if not latest:
-            _print_error("Could not determine latest version.")
-            return
-    except Exception as e:
-        _print_error("Failed to check for updates.", str(e))
+    latest = _latest_version()
+    if not latest:
+        _print_error("Could not determine latest version from GitHub.", "Make sure you have internet access.")
         return
 
     current = __version__
