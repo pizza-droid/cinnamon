@@ -1389,7 +1389,21 @@ def update():
             cfg = load_config()
             cfg["_update_check"] = 0
             save_config(cfg)
-            _print_success(f"Updated to {latest}!")
+            try:
+                import importlib
+                import cinnamon as _pkg
+                importlib.reload(_pkg)
+                new_version = _pkg.__version__
+            except Exception:
+                new_version = None
+            if new_version and new_version != current:
+                _print_success(f"Updated to {new_version}!")
+            else:
+                _print_error(
+                    f"pip reported success but version is still {current}.",
+                    "You may be installing into a different Python environment. Try: "
+                    f"python -m pip install --upgrade {url}",
+                )
         else:
             _print_error(f"Update failed (exit code {proc.returncode}).")
     except Exception as e:
