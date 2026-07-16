@@ -880,6 +880,19 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
     show_id = show["id"]
 
     if scraper is None and mtype == "tv" and _is_anime(show):
+        # Route anime through allanime's available-episode list so we never
+        # offer an episode the source doesn't have (same as `cinnamon anime`).
+        from .scrapers.anime import _find_show, _allanime_episodes
+        import requests as _req
+        _as = _req.Session()
+        _as.headers.update({"User-Agent": "Mozilla/5.0"})
+        _aid = _find_show(_as, show_name)
+        if _aid:
+            _ed = _allanime_episodes(_as, _aid)
+            if _ed:
+                _run_anime_flow(show_name, _ed, season, ep_str, player, quality, info_only, download)
+                return
+        # Fall through to generic TV flow if allanime lookup fails.
         scraper = "anime"
         _print_info(f"Detected anime — using [bold]anime[/bold] scraper")
 
@@ -1495,6 +1508,12 @@ def anime(query, season, ep_str, download, player, quality, info_only):
         _print_error("No episode data from allanime.")
         return
 
+    _run_anime_flow(show_name, episodes_detail, season, ep_str, player, quality, info_only, download)
+
+
+def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player=None, quality=None, info_only=False, download=False):
+    """Drive the episode picker from allanime's *available* episodes (not TMDB's
+    full list), so we never offer an episode the anime source doesn't have."""
     parsed = {}
     for key, eps in episodes_detail.items():
         if "|" in key:
