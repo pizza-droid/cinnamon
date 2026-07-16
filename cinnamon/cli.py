@@ -263,10 +263,27 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
         if not download:
             _print_error("Episode ranges are only supported with --download.")
             return
-        for ep_num in range(ep_start, ep_end + 1):
-            ep_name = f"S{season_num:02d}E{ep_num:02d}"
-            _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download, translation=translation)
-            console.print()
+        from .downloads import create as _track_create
+        show_name = show.get("name", "?")
+        range_track_id = _track_create({
+            "title": show_name,
+            "url": "",
+            "tv_id": show.get("id", 0),
+            "season": season_num,
+            "episode": f"{ep_start}-{ep_end}",
+            "quality": quality or "",
+            "referer": "",
+        })
+        from .downloads import update as _track_update
+        try:
+            for ep_num in range(ep_start, ep_end + 1):
+                ep_name = f"S{season_num:02d}E{ep_num:02d}"
+                _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download, translation=translation, range_track_id=range_track_id)
+                console.print()
+        except KeyboardInterrupt:
+            _track_update(range_track_id, status="interrupted")
+            raise
+        _track_update(range_track_id, status="completed")
         return
 
     ep_num = ep_start
@@ -319,7 +336,7 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
                 quality = Prompt.ask("Quality (480p, 720p, 1080p, best, worst)", default=quality or "best")
 
 
-def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download=False, translation=None):
+def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download=False, translation=None, range_track_id=None):
     show_name = show.get("name", "?")
     show_id = show["id"]
 
@@ -375,16 +392,19 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         if result.m3u8_url.startswith("magnet:"):
             _print_error("Download not supported for magnet links.")
             return None
-        from .downloads import create as _track_create
-        track_id = _track_create({
-            "title": result.title,
-            "url": result.m3u8_url,
-            "tv_id": show_id,
-            "season": season_num,
-            "episode": ep_num,
-            "quality": quality,
-            "referer": result.referer,
-        })
+        if range_track_id:
+            track_id = range_track_id
+        else:
+            from .downloads import create as _track_create
+            track_id = _track_create({
+                "title": result.title,
+                "url": result.m3u8_url,
+                "tv_id": show_id,
+                "season": season_num,
+                "episode": ep_num,
+                "quality": quality,
+                "referer": result.referer,
+            })
         try:
             download_video(result.m3u8_url, title=result.title, referer=result.referer, track_id=track_id)
         except PlayerNotFoundError:
@@ -852,15 +872,27 @@ def resume():
     table = Table(border_style="dim")
     table.add_column("#", style="cyan")
     table.add_column("Title")
+    table.add_column("Episodes")
     table.add_column("Quality", style="yellow")
     table.add_column("Progress", style="green")
 
+    resume_indices = []
     for i, d in enumerate(dls, 1):
-        table.add_row(str(i), d.get("title", "?"), d.get("quality", "-"), "[yellow]interrupted[/yellow]")
+        ep = d.get("episode", "")
+        season = d.get("season")
+        ep_label = f"S{season}E{ep}" if season and ep else str(ep)
+        if not d.get("url"):
+            ep_label += " [dim](can't resume range)[/dim]"
+        else:
+            resume_indices.append(i)
+        table.add_row(str(i), d.get("title", "?"), ep_label, d.get("quality", "-"), "[yellow]interrupted[/yellow]")
 
     console.print(table)
 
-    choice = Prompt.ask("Resume which download?", default="1")
+    if not resume_indices:
+        return
+
+    choice = Prompt.ask("Resume which download?", default=str(resume_indices[0]))
     try:
         d = dls[int(choice) - 1]
     except (ValueError, IndexError):
@@ -868,6 +900,9 @@ def resume():
 
     track_id = d["id"]
     url = d.get("url")
+    if not url:
+        _print_error("Range downloads cannot be resumed from here. Re-run the full range with -e.")
+        return
     title = d.get("title", "video")
     referer = d.get("referer")
 
@@ -908,14 +943,19 @@ def download_list():
     table = Table(border_style="dim")
     table.add_column("ID", style="cyan")
     table.add_column("Title")
+    table.add_column("Episodes")
     table.add_column("Quality", style="yellow")
     table.add_column("Status")
     table.add_column("Date")
 
     for d in all_dls:
+        ep = d.get("episode", "")
+        season = d.get("season")
+        ep_label = f"S{season}E{ep}" if season and ep else ep
         table.add_row(
             d.get("id", "?"),
             d.get("title", "?"),
+            ep_label,
             d.get("quality", "-"),
             d.get("status", "?"),
             d.get("timestamp", ""),
