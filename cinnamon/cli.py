@@ -1199,7 +1199,7 @@ def anime(query, season, ep_str, download, player, quality, info_only):
         if tt != "sub":
             console.print(f"  [dim]Using {tt}[/dim]")
 
-    episodes = season_data[tt]
+    episodes = [int(e) for e in season_data[tt]]
     max_ep = max(episodes)
     ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
 
@@ -1215,7 +1215,7 @@ def anime(query, season, ep_str, download, player, quality, info_only):
             ep_chosen = questionary.select("Select an episode:", choices=ep_choices).unsafe_ask()
             if not ep_chosen:
                 return
-            ep_start = ep_chosen
+            ep_start = int(ep_chosen)
         except Exception:
             ep_start = Prompt.ask("Episode", default="1")
             try:
