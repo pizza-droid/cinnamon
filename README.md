@@ -62,6 +62,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 
 | If you run this… | …this happens |
 |---|---|
+| `cinnamon anime <query>` | Search anime via AniList (no API key needed) |
 | `cinnamon search <query>` | Find a show, pick an episode, watch it |
 | `cinnamon watch --id 123 -s 2 -e 5` | Go straight to S2E5 without menus |
 | `cinnamon play-url <url>` | Play any m3u8/mp4 link |

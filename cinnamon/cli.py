@@ -1072,6 +1072,136 @@ def install(name):
 
 
 @cli.command()
+@click.argument("query", nargs=-1, required=False)
+@click.option("-s", "--season", type=int, help="Season number")
+@click.option("-e", "--episode", "ep_str", help="Episode number or range (e.g. 1 or 1-10)")
+@click.option("-d", "--download", is_flag=True, help="Download instead of streaming")
+@click.option("--player", help="Player: vlc, mpv, or auto")
+@click.option("-q", "--quality", help="Video quality: 480p, 720p, 1080p, best, worst")
+@click.option("--info-only", is_flag=True, help="Show the stream URL without playing")
+def anime(query, season, ep_str, download, player, quality, info_only):
+    """Search anime via AniList (no API key needed) and stream from allanime."""
+    _check_for_updates()
+
+    query_str = " ".join(query) if query else None
+    if not query_str:
+        query_str = Prompt.ask("[bold]Search for an[/bold] [magenta]anime[/magenta]")
+
+    from .anilist import search_anime
+
+    results = search_anime(query_str)
+    if not results:
+        _print_info(f"No anime found for \"{query_str}\".")
+        return
+
+    def _title(m):
+        return m.get("title", {}).get("romaji") or m.get("title", {}).get("english") or m.get("title", {}).get("native", "?")
+    def _year(m):
+        sd = m.get("startDate") or {}
+        return str(sd.get("year", "")) if sd.get("year") else ""
+
+    show = _pick_with_arrows(results, _title, _year, "Select an anime:")
+    if not show:
+        return
+
+    show_name = _title(show)
+    console.clear()
+    theme = get_theme()
+    console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
+
+    from .scrapers.anime import _find_show, _allanime_episodes
+    import requests as _req
+
+    session = _req.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
+
+    allanime_id = _find_show(session, show_name)
+    if not allanime_id:
+        _print_error(f"No match for \"{show_name}\" on allanime.")
+        return
+
+    episodes_detail = _allanime_episodes(session, allanime_id)
+    if not episodes_detail:
+        _print_error("No episode data from allanime.")
+        return
+
+    parsed = {}
+    for key, eps in episodes_detail.items():
+        if "|" in key:
+            parts = key.split("|", 1)
+            s = int(parts[0]) if parts[0].isdigit() else 1
+            tt = parts[1] if len(parts) > 1 else "sub"
+        else:
+            s = 1
+            tt = key
+        parsed.setdefault(s, {})[tt] = eps
+
+    if season is None:
+        season_keys = sorted(parsed.keys())
+        if len(season_keys) > 1:
+            try:
+                season = questionary.select("Select a season:", choices=[
+                    questionary.Choice(title=f"Season {s}", value=s) for s in season_keys
+                ]).unsafe_ask()
+            except Exception:
+                season = season_keys[0]
+        else:
+            season = season_keys[0]
+            if season != 1:
+                console.print(f"  [dim]Using Season {season}[/dim]")
+
+    season_data = parsed.get(season)
+    if not season_data:
+        _print_error(f"No episodes for season {season}.")
+        return
+
+    tt_keys = list(season_data.keys())
+    if "sub" in tt_keys and len(tt_keys) > 1:
+        try:
+            tt = questionary.select("Translation:", choices=[
+                questionary.Choice(title=k, value=k) for k in tt_keys
+            ], default="sub").unsafe_ask()
+        except Exception:
+            tt = "sub"
+    else:
+        tt = tt_keys[0]
+        if tt != "sub":
+            console.print(f"  [dim]Using {tt}[/dim]")
+
+    episodes = season_data[tt]
+    max_ep = max(episodes)
+    ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
+
+    if ep_start is not None:
+        if ep_start not in episodes:
+            _print_error(f"Episode {ep_start} not found (available: 1-{max_ep}).")
+            return
+        if ep_end is not None and ep_end > max_ep:
+            ep_end = max_ep
+    else:
+        try:
+            ep_choices = [questionary.Choice(title=f"Episode {e}", value=e) for e in sorted(episodes)]
+            ep_chosen = questionary.select("Select an episode:", choices=ep_choices).unsafe_ask()
+            if not ep_chosen:
+                return
+            ep_start = ep_chosen
+        except Exception:
+            ep_start = Prompt.ask("Episode", default="1")
+            try:
+                ep_start = int(ep_start)
+            except ValueError:
+                _print_error("Invalid episode number.")
+                return
+
+    if scraper is None:
+        scraper = "anime"
+
+    show_dict = {"name": show_name, "id": 0}
+    ep_name = f"S{season:02d}E{ep_start:02d}"
+    _play_with_menu(show_dict, season, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download)
+
+
+@cli.command()
 def update():
     """Check for and install the latest version of cinnamon from GitHub."""
     import requests
