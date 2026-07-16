@@ -1064,6 +1064,24 @@ def config_set_api_key(api_key):
     _print_success("TMDB API key saved.")
 
 
+@config.command("show-api-key")
+def config_show_api_key():
+    """Show the active TMDB API key (env var or saved config) and its source."""
+    import os
+    env_key = os.getenv("TMDB_API_KEY")
+    if env_key:
+        console.print(f"  Source: [cyan]TMDB_API_KEY[/cyan] env var")
+        console.print(f"  Key: [bold]{env_key}[/bold]")
+        return
+    from .config import get_tmdb_api_key
+    key = get_tmdb_api_key()
+    if key:
+        console.print("  Source: [yellow]config.json[/yellow]")
+        console.print(f"  Key: [bold]{key}[/bold]")
+    else:
+        _print_info("No TMDB API key set (env var or config).")
+
+
 @config.command("default-scraper")
 @click.argument("name")
 def config_default_scraper(name):
