@@ -16,5 +16,9 @@ dependencies = [
     "playwright>=1.60",
 ]
 
+[tool.setuptools.packages.find]
+include = ["cinnamon*"]
+exclude = ["tests*", "node_modules*"]
+
 [project.scripts]
 cinnamon = "cinnamon.cli:cli"
