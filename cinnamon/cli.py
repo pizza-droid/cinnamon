@@ -997,7 +997,16 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
         last = _get_history(show_name)
         if last and last.get("season") == season_num and last.get("episode"):
             resume_ep = last["episode"]
-            if Confirm.ask(f"  Resume from [bold]E{resume_ep:02d}[/bold]?", default=True):
+            try:
+                answer = Prompt.ask(
+                    f"  Resume from [bold]E{resume_ep:02d}[/bold]? [dim](y/n)[/dim]",
+                    default="y",
+                    show_default=False,
+                ).strip().lower()
+                resume = answer in ("", "y", "yes")
+            except (EOFError, KeyboardInterrupt):
+                resume = True
+            if resume:
                 ep_start = resume_ep
 
     if ep_start is not None:
@@ -1439,7 +1448,16 @@ def anime(query, season, ep_str, download, player, quality, info_only):
         last = _get_history(show_name)
         if last and last.get("episode"):
             resume_ep = last["episode"]
-            if Confirm.ask(f"  Resume from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]?", default=True):
+            try:
+                answer = Prompt.ask(
+                    f"  Resume from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]? [dim](y/n)[/dim]",
+                    default="y",
+                    show_default=False,
+                ).strip().lower()
+                resume = answer in ("", "y", "yes")
+            except (EOFError, KeyboardInterrupt):
+                resume = True
+            if resume:
                 ep_str = str(resume_ep)
 
     from .scrapers.anime import _find_show, _allanime_episodes
