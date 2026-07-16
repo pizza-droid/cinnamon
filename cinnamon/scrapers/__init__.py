@@ -5,13 +5,12 @@ import sys
 from pathlib import Path
 
 from .base import BaseScraper
-from .example import ExampleScraper
 from .vidsrc import VidSrcScraper
 from .torrentio import TorrentioScraper
 from .webstream import WebStreamScraper
 from .anime import AnimeScraper
 
-_BUILTIN_SCRAPERS = [ExampleScraper, VidSrcScraper, TorrentioScraper, WebStreamScraper, AnimeScraper]
+_BUILTIN_SCRAPERS = [VidSrcScraper, TorrentioScraper, WebStreamScraper, AnimeScraper]
 
 
 def _discover_user_scrapers(scrapers_dir):

@@ -15,7 +15,7 @@
 | | |
 |---|---|
 | **TMDB search** | Search TV shows by name, browse seasons and episodes interactively |
-| **5 scraper plugins** | webstream, vidsrc, torrentio, anime, directstream — each scrapes different sources |
+| **4 scraper plugins** | webstream, vidsrc, torrentio, anime — each scrapes different sources |
 | **Auto anime detection** | Japanese animation automatically uses the anime scraper |
 | **mpv / VLC** | Auto-detects installed player, plays HLS and direct MP4 streams |
 | **Download** | Save episodes via yt-dlp with a progress bar |
@@ -109,7 +109,6 @@ cinnamon watch --id 114410 --season 1 --episode 1
 | `anime` | Anime from allanime.day via mp4upload | nothing |
 | `vidsrc` | Streams from vidsrc domains via Playwright | `playwright install chromium` |
 | `torrentio` | Torrent streams via Torrentio (1337x, TPB, RARBG) | nothing |
-| `example` | Placeholder for writing your own scraper | — |
 
 Set the default:
 
@@ -172,9 +171,7 @@ cinnamon/
 │       ├── webstream.py      # vixsrc.to / vidlink.pro
 │       ├── anime.py          # allanime.day / mp4upload
 │       ├── vidsrc.py         # Playwright-based
-│       ├── torrentio.py      # Torrentio API
-│       ├── directstream.py   # Multi-embed fallback
-│       └── example.py        # Template for custom scrapers
+│       └── torrentio.py      # Torrentio API
 ├── pyproject.toml
 └── package.json              # WebTorrent bridge
 ```
