@@ -69,7 +69,7 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
-    api_url = f"https://vixsrc.to/api/tv/{tmdb_id}/{season}/{episode}"
+    api_url = f"https://vixsrc.to/api/tv/{tmdb_id}/{season}/{episode}?lang=en"
     embed_resp = session.get(api_url, timeout=TIMEOUT, headers={
         "Accept": "application/json, text/javascript, */*; q=0.01",
         "Referer": "https://vixsrc.to",
@@ -81,6 +81,8 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
         raise ScraperNetworkError("vixsrc", "No src in API response")
 
     full_embed = "https://vixsrc.to" + embed_src
+    sep = "&" if "?" in full_embed else "?"
+    full_embed += f"{sep}lang=en"
     html = session.get(full_embed, timeout=TIMEOUT, headers={
         "Accept": "text/html,application/xhtml+xml,*/*",
     }).text
@@ -92,7 +94,7 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
         raise ScraperNetworkError("vixsrc", "Could not extract token/playlist from embed page")
 
     sep = "&" if "?" in playlist.group(1) else "?"
-    master_url = f'{playlist.group(1)}{sep}token={token.group(1)}&expires={expires.group(1)}&h=1'
+    master_url = f'{playlist.group(1)}{sep}token={token.group(1)}&expires={expires.group(1)}&h=1&lang=en'
 
     if not quality:
         return master_url
@@ -138,7 +140,7 @@ def _try_vidlink(tmdb_id, season, episode) -> Optional[str]:
     if not encoded:
         raise ScraperNetworkError("vidlink", "No encrypted ID from API")
 
-    stream_url = f"https://vidlink.pro/api/b/tv/{encoded}/{season}/{episode}?multiLang=0"
+    stream_url = f"https://vidlink.pro/api/b/tv/{encoded}/{season}/{episode}?multiLang=0&audio=eng&subLang=eng"
     stream_resp = session.get(stream_url, timeout=TIMEOUT, headers={
         "Referer": "https://vidlink.pro/",
     })
