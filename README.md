@@ -1,8 +1,8 @@
 # cinnamon
 
-> Watch TV shows and anime from your terminal. Search, pick an episode, and it plays in mpv or VLC.
+> Watch TV shows, movies, and anime from your terminal. Search, pick a title, and it plays in mpv or VLC.
 
-[![Version](https://img.shields.io/badge/version-0.2.15-blue)](#)
+[![Version](https://img.shields.io/badge/version-0.2.16-blue)](#)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux%20%7C%20termux-lightgrey)](#)
@@ -29,16 +29,23 @@ The setup wizard asks for a TMDB API key ([free account](https://www.themoviedb.
 | **Linux** | `apt install mpv` (Debian/Ubuntu) | `apt install vlc` |
 | **Termux** | `pkg install mpv` | `pkg install vlc` |
 
-### Watch a show
+### Watch a show or movie
 
 ```bash
 cinnamon search "Breaking Bad"
 ```
 
-Pick a show, pick an episode, and it plays. Anime is detected automatically:
+Pick a title, pick an episode (for TV) or just play (for movies), and it plays. Anime is detected automatically:
 
 ```bash
 cinnamon search "Chainsaw Man"
+```
+
+Movies work the same way — search returns both TV and movies, and you pick:
+
+```bash
+cinnamon search "Inception"
+cinnamon watch --type movie --query "Inception"
 ```
 
 ### Download episodes

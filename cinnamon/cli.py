@@ -88,6 +88,78 @@ def _print_info(title, detail=None):
         console.print(Panel(f"[{t['info']}]{title}[/{t['info']}]", border_style=t["info"]))
 
 
+# ---------------------------------------------------------------------------
+# interactive selection UI
+#
+# One focus point: the highlighted row (class:highlighted) is bright, every
+# other row (class:text) is dimmed grey, and the question line (class:question)
+# is the anchor. All pickers route through _select so the look is consistent.
+# ---------------------------------------------------------------------------
+
+_POINTER = "❯"
+
+# prompt_toolkit needs hex colors, not rich color names. Map the theme accents
+# to hex so the picker's focus color matches the active theme.
+_Q_HEX = {
+    "orange1": "#ffaf00",
+    "deep_sky_blue1": "#00afff",
+    "blue": "#0000ff",
+    "white": "#ffffff",
+    "bright_white": "#ffffff",
+    "grey50": "#7f7f7f",
+    "grey35": "#595959",
+}
+
+
+def _q_hex(name):
+    return _Q_HEX.get(name, "#ffaf00")
+
+
+def _q_style():
+    """questionary Style that makes the focused choice the clear focus point."""
+    t = get_theme()
+    accent = _q_hex(t.get("accent", "orange1"))
+    dim = _q_hex(t.get("dim", "grey50"))
+    return questionary.Style(
+        [
+            ("qmark", f"fg:{accent}"),
+            ("question", f"bold fg:{accent}"),
+            ("pointer", f"bold fg:{accent}"),
+            ("highlighted", f"bold fg:{accent}"),
+            ("text", f"fg:{dim}"),
+            ("separator", f"fg:{dim}"),
+            ("instruction", f"fg:{dim}"),
+            ("answer", f"bold fg:{accent}"),
+        ]
+    )
+
+
+def _select(message, choices, default=None, **kwargs):
+    """questionary.select with cinnamon's focus style applied."""
+    kwargs.setdefault("pointer", _POINTER)
+    try:
+        return questionary.select(
+            message, choices=choices, default=default, style=_q_style(), **kwargs
+        ).unsafe_ask()
+    except Exception:
+        return None
+
+
+def _prompt(message, default=None, password=False):
+    """rich Prompt.ask that degrades gracefully when stdin is closed (EOF) or
+    not a TTY — returns the default instead of aborting the whole command.
+
+    This is what keeps the CLI from crashing under automation, Termux, or a
+    closed pipe (where Prompt.ask raises EOFError and click turns it into a
+    hard SystemExit)."""
+    try:
+        return Prompt.ask(message, default=default, password=password)
+    except (EOFError, KeyboardInterrupt):
+        return default
+    except Exception:
+        return default
+
+
 _UPDATE_CHECK_CACHE = 86400  # 24 hours
 
 
@@ -215,7 +287,7 @@ def _pick_combined(items, message):
             tag = "Movie" if mtype == "movie" else "TV"
             label = f"{title}  ({year})  [{tag}]"
             choices.append(questionary.Choice(title=label, value=item))
-        return questionary.select(message, choices=choices).unsafe_ask()
+        return _select(message, choices)
     except Exception:
         # Fallback to a numbered table
         table = Table(border_style="dim")
@@ -229,17 +301,19 @@ def _pick_combined(items, message):
             date = item.get("release_date") or item.get("first_air_date") or ""
             table.add_row(str(i), title, (date or "")[:4], "Movie" if mtype == "movie" else "TV")
         console.print(table)
+        attempts = 0
         while True:
             try:
-                choice = int(Prompt.ask(f"{message} (enter number)", default="1"))
+                choice = int(_prompt(f"{message} (enter number)", default="1"))
                 if 1 <= choice <= len(items):
                     return items[choice - 1]
-                console.print("[red]Pick a number between 1 and {len(items)}.[/red]")
+                console.print(f"[red]Pick a number between 1 and {len(items)}.[/red]")
             except ValueError:
                 console.print("[red]Invalid input. Enter a number.[/red]")
-            except (EOFError, KeyboardInterrupt):
-                console.print()
-                raise SystemExit(0)
+            attempts += 1
+            if attempts >= 10:
+                console.print("[red]Too many invalid attempts.[/red]")
+                return None
 
 
 def _pick_with_arrows(items, title_key, subtitle_key, message):
@@ -260,7 +334,7 @@ def _pick_with_arrows(items, title_key, subtitle_key, message):
                     subtitle = str(item.get(subtitle_key, "") or "")
             label = title if not subtitle else f"{title}  ({subtitle})"
             choices.append(questionary.Choice(title=label, value=item))
-        return questionary.select(message, choices=choices).unsafe_ask()
+        return _select(message, choices)
     except Exception:
         return _pick_numbered(items, title_key, subtitle_key, message)
 
@@ -288,17 +362,19 @@ def _pick_numbered(items, title_key, subtitle_key, message):
         table.add_row(*row)
 
     console.print(table)
+    attempts = 0
     while True:
         try:
-            choice = int(Prompt.ask(f"{message} (enter number)", default="1"))
+            choice = int(_prompt(f"{message} (enter number)", default="1"))
             if 1 <= choice <= len(items):
                 return items[choice - 1]
             console.print(f"[red]Pick a number between 1 and {len(items)}.[/red]")
         except ValueError:
             console.print("[red]Invalid input. Enter a number.[/red]")
-        except (EOFError, KeyboardInterrupt):
-            console.print()
-            raise SystemExit(0)
+        attempts += 1
+        if attempts >= 10:
+            console.print("[red]Too many invalid attempts.[/red]")
+            return None
 
 
 def _parse_episode(ep_str):
@@ -377,7 +453,7 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
         console.print()
 
         try:
-            choice = questionary.select(
+            choice = _select(
                 "Options",
                 choices=[
                     questionary.Choice(title="Next episode", value="next"),
@@ -386,7 +462,7 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
                     questionary.Choice(title="Change quality", value="quality"),
                     questionary.Choice(title="Quit", value="quit"),
                 ],
-            ).unsafe_ask()
+            )
         except Exception:
             return
 
@@ -402,11 +478,11 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
             pass
         elif choice == "quality":
             try:
-                quality = questionary.select(
+                quality = _select(
                     "Quality",
                     choices=["480p", "720p", "1080p", "best", "worst"],
                     default=quality or "best",
-                ).unsafe_ask()
+                )
             except Exception:
                 quality = Prompt.ask("Quality (480p, 720p, 1080p, best, worst)", default=quality or "best")
 
@@ -647,7 +723,7 @@ class CinnamonGroup(click.Group):
 @click.version_option(__version__, "--version", "-V")
 @click.pass_context
 def cli(ctx, setup):
-    """Cinnamon - Stream TV shows & movies from the command line."""
+    """Cinnamon - Stream TV shows, movies & anime from the command line."""
     if setup:
         ctx.invoke(setup_cmd)
         return
@@ -669,8 +745,8 @@ def cli(ctx, setup):
             border_style=theme["panel"],
         ))
         console.print()
-        query = Prompt.ask(f"[bold]Search for a[/bold] [{theme['info']}]TV show[/{theme['info']}]")
-        if query.strip():
+        query = _prompt(f"[bold]Search for a[/bold] [{theme['info']}]show or movie[/{theme['info']}]")
+        if query and query.strip():
             ctx.invoke(search, query=(query.strip(),))
 
 
@@ -717,7 +793,7 @@ def _setup_wizard():
     scraper_names = [s["name"] for s in scrapers]
     console.print()
     try:
-        scraper_choice = questionary.select(
+        scraper_choice = _select(
             "Default scraper:",
             choices=[
                 questionary.Choice(
@@ -726,7 +802,7 @@ def _setup_wizard():
                 ) for s in scrapers
             ],
             default=cfg.get("default_scraper", "vidsrc"),
-        ).unsafe_ask()
+        )
         if scraper_choice:
             cfg["default_scraper"] = scraper_choice
     except Exception:
@@ -735,7 +811,7 @@ def _setup_wizard():
     # --- Default player ---
     console.print()
     try:
-        player_choice = questionary.select(
+        player_choice = _select(
             "Default player:",
             choices=[
                 questionary.Choice(title="auto  [dim]– detect mpv then VLC[/dim]", value="auto"),
@@ -743,7 +819,7 @@ def _setup_wizard():
                 questionary.Choice(title="mpv", value="mpv"),
             ],
             default=cfg.get("default_player", "auto"),
-        ).unsafe_ask()
+        )
         if player_choice:
             cfg["default_player"] = player_choice
     except Exception:
@@ -753,7 +829,7 @@ def _setup_wizard():
     console.print()
     try:
         theme_names = list(THEMES.keys())
-        theme_choice = questionary.select(
+        theme_choice = _select(
             "Color theme:",
             choices=[
                 questionary.Choice(
@@ -762,7 +838,7 @@ def _setup_wizard():
                 ) for name in theme_names
             ],
             default=cfg.get("theme", "cinnamon"),
-        ).unsafe_ask()
+        )
         if theme_choice:
             cfg["theme"] = theme_choice
     except Exception:
@@ -919,7 +995,7 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
 @cli.command()
 @click.option("--query", help="Search query (omit for interactive)")
 @click.option("--id", "tmdb_id", type=int, help="TMDB show/movie ID")
-@click.option("-t", "--type", "media_type", type=click.Choice(["tv", "movie"]), default="tv", help="tv or movie")
+@click.option("-t", "--type", "media_type", type=click.Choice(["tv", "movie"]), default=None, help="tv or movie (defaults to both)")
 @click.option("-s", "--season", type=int, help="Season number")
 @click.option("-e", "--episode", "ep_str", help="Episode number or range (e.g. 1 or 1-10)")
 @click.option("--scraper", help="Scraper name")
@@ -935,6 +1011,7 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
 
     ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
 
+    # Explicit movie request.
     if media_type == "movie":
         if not tmdb_id and query:
             results = tmdb.search_movie(query).get("results", [])
@@ -945,7 +1022,7 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
         elif tmdb_id:
             show = tmdb.get_movie_details(tmdb_id)
         else:
-            query = Prompt.ask("Search for a movie")
+            query = _prompt("Search for a movie")
             results = tmdb.search_movie(query).get("results", [])
             show = _pick_with_arrows(results, "title", "release_date", "Select a movie:")
             if not show:
@@ -953,31 +1030,76 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
         _play_movie(show, scraper, player, quality, info_only, download)
         return
 
-    if tmdb_id:
-        show = tmdb.get_tv_details(tmdb_id)
-        show_name = show.get("name", "?")
-        console.print(f"  [bold]{show_name}[/bold]")
+    # Explicit TV request (or a TMDB id with no type hint).
+    if media_type == "tv" or (tmdb_id and media_type is None):
+        if tmdb_id:
+            show = tmdb.get_tv_details(tmdb_id)
+        elif query:
+            results = tmdb.search_tv(query).get("results", [])
+            show = _pick_with_arrows(results, "name", "first_air_date", "Select a show:")
+            if not show:
+                return
+        else:
+            query = _prompt("Search for a show")
+            results = tmdb.search_tv(query).get("results", [])
+            show = _pick_with_arrows(results, "name", "first_air_date", "Select a show:")
+            if not show:
+                return
         if scraper is None and _is_anime(show):
             scraper = "anime"
             _print_info(f"Detected anime — using [bold]anime[/bold] scraper")
         if season is not None and ep_start is not None:
             _play_with_menu(show, season, ep_start, ep_end, f"E{ep_start}", scraper, player, quality, info_only, download)
             return
+        _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, ep_start=ep_start, ep_end=ep_end)
+        return
+
+    # No type given: search both TV and movies, then dispatch by what is picked.
+    if tmdb_id:
+        # Ambiguous id without a type — try TV first, fall back to movie.
+        try:
+            show = tmdb.get_tv_details(tmdb_id)
+            mtype = "tv"
+        except TMDBNotFoundError:
+            show = tmdb.get_movie_details(tmdb_id)
+            mtype = "movie"
     elif query:
-        results = tmdb.search_tv(query).get("results", [])
-        show = _pick_with_arrows(results, "name", "first_air_date", "Select a show:")
+        tv = [dict(r, _media_type="tv") for r in tmdb.search_tv(query).get("results", [])]
+        movie = [dict(r, _media_type="movie") for r in tmdb.search_movie(query).get("results", [])]
+        combined = tv + movie
+        if not combined:
+            _print_info(f"No results found for \"{query}\".")
+            return
+        show = _pick_combined(combined, "Select a title:")
         if not show:
             return
+        mtype = show.get("_media_type", "tv")
     else:
-        query = Prompt.ask("Search for a show")
-        results = tmdb.search_tv(query).get("results", [])
-        show = _pick_with_arrows(results, "name", "first_air_date", "Select a show:")
+        query = _prompt("[bold]Search for a[/bold] [cyan]show or movie[/cyan]")
+        if not query or not query.strip():
+            return
+        query = query.strip()
+        tv = [dict(r, _media_type="tv") for r in tmdb.search_tv(query).get("results", [])]
+        movie = [dict(r, _media_type="movie") for r in tmdb.search_movie(query).get("results", [])]
+        combined = tv + movie
+        if not combined:
+            _print_info(f"No results found for \"{query}\".")
+            return
+        show = _pick_combined(combined, "Select a title:")
         if not show:
             return
+        mtype = show.get("_media_type", "tv")
+
+    if mtype == "movie":
+        _play_movie(show, scraper, player, quality, info_only, download)
+        return
 
     if scraper is None and _is_anime(show):
         scraper = "anime"
         _print_info(f"Detected anime — using [bold]anime[/bold] scraper")
+    if season is not None and ep_start is not None:
+        _play_with_menu(show, season, ep_start, ep_end, f"E{ep_start}", scraper, player, quality, info_only, download)
+        return
     _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, ep_start=ep_start, ep_end=ep_end)
 
 
@@ -1001,7 +1123,7 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
     else:
         try:
             season_choices = [questionary.Choice(title=f"Season {i}", value=i) for i in range(1, total + 1)]
-            season_chosen = questionary.select("Select a season:", choices=season_choices).unsafe_ask()
+            season_chosen = _select("Select a season:", choices=season_choices)
             if not season_chosen:
                 return
             season_num = season_chosen
@@ -1053,10 +1175,10 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
             ep_title = ep.get("name", f"Episode {ep_num}")
             label = f"E{ep_num:02d}  {ep_title}" if isinstance(ep_num, int) else f"{ep_num}  {ep_title}"
             ep_choices.append(questionary.Choice(title=label, value=ep))
-        ep_chosen = questionary.select(
+        ep_chosen = _select(
             f"Season {season_num} - Select an episode:",
             choices=ep_choices,
-        ).unsafe_ask()
+        )
         if not ep_chosen:
             return
     except Exception:
@@ -1132,13 +1254,13 @@ def resume():
 
     if not resume_indices:
         console.print("  [dim]No resumable entries found.[/dim]")
-        if Prompt.ask("  Remove these entries?", default="y").strip().lower() in ("y", "yes"):
+        if _prompt("  Remove these entries?", default="y").strip().lower() in ("y", "yes"):
             for d in dls:
                 _track_remove(d["id"])
             _print_success("Cleaned up.")
         return
 
-    choice = Prompt.ask("Resume which download?", default=str(resume_indices[0]))
+    choice = _prompt("Resume which download?", default=str(resume_indices[0]))
     try:
         d = dls[int(choice) - 1]
     except (ValueError, IndexError):
@@ -1230,7 +1352,7 @@ def download_list():
 
     console.print(table)
 
-    if Prompt.ask("Clear completed/interrupted?", default="n").strip().lower() in ("y", "yes"):
+    if _prompt("Clear completed/interrupted?", default="n").strip().lower() in ("y", "yes"):
         for d in all_dls:
             if d["status"] in ("completed", "error"):
                 _track_remove(d["id"])
@@ -1365,13 +1487,6 @@ def config_scraper_show(name):
 # ---------------------------------------------------------------------------
 # scrapers
 # ---------------------------------------------------------------------------
-
-
-@cli.command()
-def tui():
-    """Launch the full-screen TUI."""
-    from .tui import run_tui
-    run_tui()
 
 
 @cli.command()
@@ -1529,9 +1644,9 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
         season_keys = sorted(parsed.keys())
         if len(season_keys) > 1:
             try:
-                season = questionary.select("Select a season:", choices=[
+                season = _select("Select a season:", choices=[
                     questionary.Choice(title=f"Season {s}", value=s) for s in season_keys
-                ]).unsafe_ask()
+                ])
             except Exception:
                 season = season_keys[0]
         else:
@@ -1547,9 +1662,9 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
     tt_keys = list(season_data.keys())
     if "sub" in tt_keys and len(tt_keys) > 1:
         try:
-            tt = questionary.select("Translation:", choices=[
+            tt = _select("Translation:", choices=[
                 questionary.Choice(title=k, value=k) for k in tt_keys
-            ], default="sub").unsafe_ask()
+            ], default="sub")
         except Exception:
             tt = "sub"
     else:
@@ -1570,7 +1685,7 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
     else:
         try:
             ep_choices = [questionary.Choice(title=f"Episode {e}", value=e) for e in sorted(episodes)]
-            ep_chosen = questionary.select("Select an episode:", choices=ep_choices).unsafe_ask()
+            ep_chosen = _select("Select an episode:", choices=ep_choices)
             if not ep_chosen:
                 return
             ep_start = int(ep_chosen)
@@ -1703,7 +1818,7 @@ def history(query, clear):
 
     console.print(table)
 
-    if Prompt.ask("  Clear all history?", default="n").strip().lower() in ("y", "yes"):
+    if _prompt("  Clear all history?", default="n").strip().lower() in ("y", "yes"):
         clear_history()
         _print_success("Watch history cleared.")
 
