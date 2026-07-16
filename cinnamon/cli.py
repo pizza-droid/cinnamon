@@ -413,6 +413,8 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
             _track_remove(track_id)
         except PlayerLaunchError as e:
             _print_error(str(e))
+            from .downloads import update as _track_update
+            _track_update(track_id, status="error")
         except KeyboardInterrupt:
             raise
         return None

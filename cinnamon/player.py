@@ -361,6 +361,10 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
         proc.kill()
         proc.wait()
         raise
+    except PlayerLaunchError:
+        if track_id:
+            _track_update(track_id, status="error")
+        raise
 
 
 def play(url, title="", player="auto", season=None, episode=None, referer=None):
