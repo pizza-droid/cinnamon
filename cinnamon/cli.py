@@ -1150,7 +1150,14 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
         from .history import get_history as _get_history
         last = _get_history(show_name)
         if last and last.get("season") == season_num and last.get("episode"):
-            resume_ep = last["episode"]
+            # Suggest the next unwatched episode (last watched + 1) when it
+            # exists in this season; otherwise fall back to the last watched.
+            resume_ep = last["episode"] + 1
+            if not any(
+                isinstance(ep.get("episode_number"), int) and ep["episode_number"] == resume_ep
+                for ep in episodes
+            ):
+                resume_ep = last["episode"]
             try:
                 answer = Prompt.ask(
                     f"  Resume from [bold]E{resume_ep:02d}[/bold]? [dim](y/n)[/dim]",
@@ -1594,7 +1601,8 @@ def anime(query, season, ep_str, download, player, quality, info_only):
     if not ep_str:
         last = _get_history(show_name)
         if last and last.get("episode"):
-            resume_ep = last["episode"]
+            # Suggest the next unwatched episode (last watched + 1).
+            resume_ep = last["episode"] + 1
             try:
                 answer = Prompt.ask(
                     f"  Resume from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]? [dim](y/n)[/dim]",
@@ -1678,8 +1686,11 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
 
     if ep_start is not None:
         if ep_start not in episodes:
-            _print_error(f"Episode {ep_start} not found (available: 1-{max_ep}).")
-            return
+            # The suggested next episode may not exist yet (e.g. unaired) —
+            # fall back to the last available episode instead of hard-erroring.
+            fallback = max_ep
+            _print_info(f"Episode {ep_start} not available yet — using E{fallback}.")
+            ep_start = fallback
         if ep_end is not None and ep_end > max_ep:
             ep_end = max_ep
     else:
