@@ -4,7 +4,6 @@ import time as _time
 from typing import Optional
 
 import requests
-from Crypto.Cipher import AES
 
 from ..errors import ScraperNetworkError, ScraperNoStreamError, ScraperParseError
 from .base import BaseScraper, ScraperResult
@@ -46,6 +45,8 @@ def _decode_custom_hex(encoded):
     return "".join(out)
 
 def _decrypt_tobeparsed(tp):
+    from Crypto.Cipher import AES
+
     raw = __import__("base64").b64decode(tp)
     iv, ct = raw[1:13], raw[13:-16]
     ctr_iv = iv + b"\x00\x00\x00\x02"

@@ -15,7 +15,7 @@
 | | |
 |---|---|
 | **TMDB search** | Search TV shows by name, browse seasons and episodes interactively |
-| **4 scraper plugins** | webstream, vidsrc, torrentio, anime — each scrapes different sources |
+| **2 built-in scrapers** + optional plugins | webstream, anime built-in; vidsrc, torrentio installable |
 | **Auto anime detection** | Japanese animation automatically uses the anime scraper |
 | **mpv / VLC** | Auto-detects installed player, plays HLS and direct MP4 streams |
 | **Download** | Save episodes via yt-dlp with a progress bar |
@@ -103,12 +103,24 @@ cinnamon watch --id 114410 --season 1 --episode 1
 
 ## Scrapers
 
+| Name | Type | Description |
+|---|---|---|
+| `webstream` | built-in | HTTP streams from vixsrc.to and vidlink.pro |
+| `anime` | built-in | Anime from allanime.day via mp4upload |
+
+### Optional
+
+These scrapers aren't loaded by default (they need extra dependencies). Install with `cinnamon install <name>`:
+
 | Name | Description | Needs |
 |---|---|---|
-| `webstream` | HTTP streams from vixsrc.to and vidlink.pro | nothing |
-| `anime` | Anime from allanime.day via mp4upload | nothing |
 | `vidsrc` | Streams from vidsrc domains via Playwright | `playwright install chromium` |
-| `torrentio` | Torrent streams via Torrentio (1337x, TPB, RARBG) | nothing |
+| `torrentio` | Torrent streams via Torrentio (1337x, TPB, RARBG) | `npm install` for WebTorrent playback |
+
+```bash
+cinnamon install vidsrc
+cinnamon install torrentio
+```
 
 Set the default:
 
@@ -170,8 +182,8 @@ cinnamon/
 │       ├── base.py           # BaseScraper + ScraperResult
 │       ├── webstream.py      # vixsrc.to / vidlink.pro
 │       ├── anime.py          # allanime.day / mp4upload
-│       ├── vidsrc.py         # Playwright-based
-│       └── torrentio.py      # Torrentio API
+│       ├── vidsrc.py         # Playwright-based (install via cinnamon install)
+│       └── torrentio.py      # Torrentio API (install via cinnamon install)
 ├── pyproject.toml
 └── package.json              # WebTorrent bridge
 ```

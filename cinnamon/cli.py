@@ -991,11 +991,36 @@ def scrapers():
         table.add_row(s["name"], s["description"], source)
 
     console.print(table)
+
+    from .scrapers import _OPTIONAL_SCRAPERS
+    if _OPTIONAL_SCRAPERS:
+        console.print()
+        console.print("[dim]Optional (install via[/dim] [cyan]cinnamon install <name>[/cyan][dim]):[/dim]")
+        for name, info in _OPTIONAL_SCRAPERS.items():
+            console.print(f"  [cyan]{name}[/cyan]  {info['description']}  [dim](needs: {info['deps']})[/dim]")
     console.print(
-        "[dim]Tip: Drop a .py scraper in[/dim]"
+        "\n[dim]Tip: Drop a .py scraper in[/dim]"
         f" [cyan]{get_ensured_dirs()[1]}[/cyan]"
         "\n[dim]or set[/dim] [cyan]CINNAMON_SCRAPERS_PATH[/cyan] [dim]env var.[/dim]"
     )
+
+
+@cli.command()
+@click.argument("name")
+def install(name):
+    """Install an optional scraper (vidsrc, torrentio)."""
+    from .scrapers import _OPTIONAL_SCRAPERS, install_optional
+
+    if name not in _OPTIONAL_SCRAPERS:
+        available = ", ".join(_OPTIONAL_SCRAPERS)
+        _print_error(f"Unknown optional scraper: {name}", f"Available: {available}")
+        return
+
+    try:
+        dst = install_optional(name)
+        _print_success(f"Installed [bold]{name}[/bold] scraper", f"Saved to {dst}")
+    except Exception as e:
+        _print_error(f"Failed to install {name}", str(e))
 
 
 # ---------------------------------------------------------------------------

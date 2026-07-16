@@ -1,16 +1,39 @@
 import importlib
 import inspect
 import os
+import shutil
 import sys
 from pathlib import Path
 
 from .base import BaseScraper
-from .vidsrc import VidSrcScraper
-from .torrentio import TorrentioScraper
 from .webstream import WebStreamScraper
 from .anime import AnimeScraper
 
-_BUILTIN_SCRAPERS = [VidSrcScraper, TorrentioScraper, WebStreamScraper, AnimeScraper]
+_BUILTIN_SCRAPERS = [WebStreamScraper, AnimeScraper]
+
+_OPTIONAL_SCRAPERS = {
+    "vidsrc": {
+        "description": "Streams from vidsrc domains via Playwright",
+        "deps": "playwright install chromium",
+    },
+    "torrentio": {
+        "description": "Torrent streams via Torrentio (1337x, TPB, RARBG)",
+        "deps": "npm install (for WebTorrent playback)",
+    },
+}
+
+
+def install_optional(name):
+    from ..config import SCRAPERS_DIR
+
+    if name not in _OPTIONAL_SCRAPERS:
+        raise ValueError(f"Unknown optional scraper: {name}")
+
+    SCRAPERS_DIR.mkdir(parents=True, exist_ok=True)
+    src = Path(__file__).parent / f"{name}.py"
+    dst = SCRAPERS_DIR / f"{name}.py"
+    shutil.copy2(str(src), str(dst))
+    return dst
 
 
 def _discover_user_scrapers(scrapers_dir):
