@@ -67,6 +67,8 @@ cinnamon search "Breaking Bad" -d -e 1-5
 | `cinnamon watch --id 123 -s 2 -e 5` | Go straight to S2E5 without menus |
 | `cinnamon play-url <url>` | Play any m3u8/mp4 link |
 | `cinnamon resume` | Continue an interrupted download |
+| `cinnamon history` | Show watch history and resume from last episode |
+| `cinnamon history --clear` | Clear all watch history |
 | `cinnamon scrapers` | See available streaming sources |
 | `cinnamon install <name>` | Add an optional scraper (vidsrc, torrentio) |
 | `cinnamon update` | Check for and install the latest version |

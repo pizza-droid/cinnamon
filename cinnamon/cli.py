@@ -259,6 +259,11 @@ def _parse_episode(ep_str):
 def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download=False, translation=None):
     """Play episode(s), then show interactive menu until user quits."""
 
+    from .history import set_history as _set_history
+
+    def _save_history(ep):
+        _set_history(show.get("name", "?"), season_num, ep, scraper=scraper, translation=translation, quality=quality)
+
     if ep_end is not None and ep_end > ep_start:
         if not download:
             _print_error("Episode ranges are only supported with --download.")
@@ -281,6 +286,7 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
             for ep_num in range(ep_start, ep_end + 1):
                 ep_name = f"S{season_num:02d}E{ep_num:02d}"
                 _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, quality, info_only, download, translation=translation, range_track_id=range_track_id)
+                _save_history(ep_num)
                 console.print()
         except KeyboardInterrupt:
             _track_update(range_track_id, status="interrupted")
@@ -299,6 +305,8 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
             proc.wait()
         except AttributeError:
             return
+
+        _save_history(ep_num)
 
         theme = get_theme()
         console.print()
@@ -804,6 +812,14 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
         _print_error(f"No episodes found for S{season_num}.")
         return
 
+    if ep_start is None:
+        from .history import get_history as _get_history
+        last = _get_history(show_name)
+        if last and last.get("season") == season_num and last.get("episode"):
+            resume_ep = last["episode"]
+            if Confirm.ask(f"  Resume from [bold]E{resume_ep:02d}[/bold]?", default=True):
+                ep_start = resume_ep
+
     if ep_start is not None:
         ep_name = f"S{season_num:02d}E{ep_start:02d}"
         _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download)
@@ -1220,6 +1236,14 @@ def anime(query, season, ep_str, download, player, quality, info_only):
     theme = get_theme()
     console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
 
+    from .history import get_history as _get_history
+    if not ep_str:
+        last = _get_history(show_name)
+        if last and last.get("episode"):
+            resume_ep = last["episode"]
+            if Confirm.ask(f"  Resume from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]?", default=True):
+                ep_str = str(resume_ep)
+
     from .scrapers.anime import _find_show, _allanime_episodes
     import requests as _req
 
@@ -1352,6 +1376,68 @@ def update():
             _print_error(f"Update failed (exit code {proc.returncode}).")
     except Exception as e:
         _print_error("Update failed.", str(e))
+
+
+# ---------------------------------------------------------------------------
+# history
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("query", nargs=-1, required=False)
+@click.option("--clear", is_flag=True, help="Clear all watch history")
+def history(query, clear):
+    """Show watch history and resume from last episode."""
+    from .history import clear_history, get_history, list_history
+
+    if clear:
+        clear_history()
+        _print_success("Watch history cleared.")
+        return
+
+    q = " ".join(query) if query else None
+    if q:
+        entry = get_history(q)
+        if not entry:
+            _print_info(f"No history found for \"{q}\".")
+            return
+        _print_info(f"Last watched [bold]{q}[/bold]: S{entry.get('season', 1)}E{entry.get('episode')}")
+        _play_with_menu(
+            {"name": q, "id": 0},
+            entry.get("season", 1),
+            entry.get("episode"),
+            None,
+            "",
+            entry.get("scraper") or "anime",
+            None,
+            entry.get("quality"),
+            False,
+            False,
+            translation=entry.get("translation"),
+        )
+        return
+
+    entries = list_history()
+    if not entries:
+        _print_info("No watch history yet.")
+        return
+
+    table = Table(border_style="dim")
+    table.add_column("Show", style="cyan")
+    table.add_column("Episode", style="green")
+    table.add_column("Last watched", style="yellow")
+
+    import datetime
+    for name, e in entries:
+        ts = e.get("timestamp", 0)
+        date_label = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
+        table.add_row(name, f"S{e.get('season', 1)}E{e.get('episode')}", date_label)
+
+    console.print(table)
+
+    if Prompt.ask("  Clear all history?", default="n").strip().lower() in ("y", "yes"):
+        clear_history()
+        _print_success("Watch history cleared.")
 
 
 # ---------------------------------------------------------------------------
