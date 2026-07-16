@@ -150,7 +150,8 @@ def play_vlc(url, title="", referer=None):
     try:
         return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as e:
-        raise PlayerLaunchError("VLC", str(e))
+        hint = " — try reinstalling with: pkg install vlc" if "Exec format" in str(e) or "No such file" in str(e) else ""
+        raise PlayerLaunchError("VLC", str(e) + hint)
 
 
 def play_mpv(url, title="", referer=None):
@@ -164,7 +165,8 @@ def play_mpv(url, title="", referer=None):
     try:
         return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as e:
-        raise PlayerLaunchError("mpv", str(e))
+        hint = " — try reinstalling with: pkg install mpv" if "Exec format" in str(e) or "No such file" in str(e) else ""
+        raise PlayerLaunchError("mpv", str(e) + hint)
 
 
 def _streamer_path():
@@ -371,9 +373,15 @@ def play(url, title="", player="auto", season=None, episode=None, referer=None):
     if url.startswith("magnet:"):
         return _play_magnet(url, title, player, season, episode)
     if player == "auto":
-        if _mpv_path():
-            return play_mpv(url, title, referer)
-        if _vlc_path():
+        mpv = _mpv_path()
+        vlc = _vlc_path()
+        if mpv:
+            try:
+                return play_mpv(url, title, referer)
+            except PlayerLaunchError:
+                if not vlc:
+                    raise
+        if vlc:
             return play_vlc(url, title, referer)
         raise PlayerNotFoundError("auto")
     if player == "vlc":
