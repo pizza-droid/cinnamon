@@ -254,6 +254,54 @@ def _termux_proxy_url(target_url, referer=None, user_agent=None):
     return f"http://127.0.0.1:{port}/video.mp4"
 
 
+def _launch(player_name, cmd):
+    """Launch a desktop player and verify it actually started.
+
+    If the process exits within a short grace period (e.g. no $DISPLAY on a
+    headless/WSL box, or missing libs), capture its stderr and raise a clear
+    PlayerLaunchError instead of returning a dead process that the caller then
+    blocks on forever."""
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+        )
+    except OSError as e:
+        hint = (
+            f" — try reinstalling with: pkg install {player_name}"
+            if "Exec format" in str(e) or "No such file" in str(e)
+            else ""
+        )
+        raise PlayerLaunchError(player_name, str(e) + hint)
+
+    # Give the player a moment to fail (missing display, codec, etc.).
+    try:
+        proc.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        # Still alive after 2s — it started successfully. Detach stderr.
+        if proc.stderr and not proc.stderr.closed:
+            try:
+                proc.stderr.close()
+            except OSError:
+                pass
+        return proc
+
+    # Exited during the grace period: it failed to start.
+    err = ""
+    try:
+        if proc.stderr:
+            err = proc.stderr.read().decode("utf-8", "replace").strip()
+    except (OSError, ValueError):
+        pass
+    msg = f"{player_name} exited immediately"
+    if "DISPLAY" in err or "display" in err.lower() or "X11" in err or "Wayland" in err:
+        msg += " — no display found. Set $DISPLAY (e.g. an X server on :0) or run from a desktop session."
+    elif err:
+        msg += f": {err[:300]}"
+    else:
+        msg += " (no error output — likely no display or missing dependencies)."
+    raise PlayerLaunchError(player_name, msg)
+
+
 def play_vlc(url, title="", referer=None):
     exe = _vlc_path()
     if not exe:
@@ -264,11 +312,7 @@ def play_vlc(url, title="", referer=None):
     if referer:
         cmd.append(f"--http-referrer={referer}")
     cmd.append(url)
-    try:
-        return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError as e:
-        hint = " — try reinstalling with: pkg install vlc" if "Exec format" in str(e) or "No such file" in str(e) else ""
-        raise PlayerLaunchError("VLC", str(e) + hint)
+    return _launch("VLC", cmd)
 
 
 def play_mpv(url, title="", referer=None):
@@ -281,11 +325,7 @@ def play_mpv(url, title="", referer=None):
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
     cmd.append(url)
-    try:
-        return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError as e:
-        hint = " — try reinstalling with: pkg install mpv" if "Exec format" in str(e) or "No such file" in str(e) else ""
-        raise PlayerLaunchError("mpv", str(e) + hint)
+    return _launch("mpv", cmd)
 
 
 def _streamer_path():
