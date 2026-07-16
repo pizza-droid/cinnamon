@@ -226,6 +226,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     if track_id:
         _track_update(track_id, status="downloading")
 
+    from rich.console import Console
     _console = Console(stderr=True)
     _console.print(f"[dim]Downloading to {os.path.abspath(output_dir)}[/dim]")
 
