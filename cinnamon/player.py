@@ -312,80 +312,55 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     if track_id:
         _track_update(track_id, status="downloading")
 
-    from rich.console import Console
-    _console = Console(stderr=True)
-    _console.print(f"[dim]Downloading to {os.path.abspath(output_dir)}[/dim]")
-
-    from rich.progress import BarColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, TransferSpeedColumn
-
-    progress = Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TransferSpeedColumn(),
-        TimeRemainingColumn(),
-        console=_console,
-    )
+    print(f"Downloading to {os.path.abspath(output_dir)}", file=sys.stderr)
 
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1,
     )
 
-    task_id = None
-    progress.start()
-
+    last_pct = -1
     try:
         for line in proc.stderr:
             if "[download]" not in line:
                 continue
 
             import re
-            m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
+            m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+).*ETA\s+(\S+)", line)
             if not m:
-                continue
+                m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
 
-            pct = float(m.group(1))
-            size_val = float(m.group(2))
-            unit = m.group(3)
+            if m:
+                pct = float(m.group(1))
+                size_val = float(m.group(2))
+                unit = m.group(3)
+                eta = m.group(4) if m.lastindex >= 4 else ""
 
-            if unit == "KiB":
-                total_bytes = size_val * 1024
-            elif unit == "MiB":
-                total_bytes = size_val * 1024 * 1024
-            elif unit == "GiB":
-                total_bytes = size_val * 1024 * 1024 * 1024
-            else:
-                total_bytes = size_val
-
-            if task_id is None and total_bytes:
-                task_id = progress.add_task(title, total=total_bytes)
-
-            if task_id is not None and total_bytes:
-                progress.update(task_id, completed=total_bytes * pct / 100, refresh=True)
+                if int(pct) != last_pct:
+                    last_pct = int(pct)
+                    bar_width = 25
+                    filled = int(bar_width * pct / 100)
+                    bar = "█" * filled + "░" * (bar_width - filled)
+                    eta_str = f" ETA {eta}" if eta else ""
+                    print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}", end="", file=sys.stderr)
 
         proc.wait()
+        print(file=sys.stderr)
 
         if proc.returncode == 0:
             if track_id:
                 _track_update(track_id, status="completed")
-            _console.print(f"[green]Done[/green] — {safe}")
+            print(f"  Done — {safe}", file=sys.stderr)
         else:
             raise PlayerLaunchError("yt-dlp", f"exit code {proc.returncode}")
 
     except KeyboardInterrupt:
-        _console.print()
+        print(file=sys.stderr)
         if track_id:
             _track_update(track_id, status="interrupted")
         proc.kill()
         proc.wait()
         raise
-    except PlayerLaunchError:
-        if track_id:
-            _track_update(track_id, status="error")
-        raise
-    finally:
-        progress.stop()
 
 
 def play(url, title="", player="auto", season=None, episode=None, referer=None):
