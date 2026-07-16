@@ -333,6 +333,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     )
 
     task_id = None
+    progress.start()
 
     try:
         for line in proc.stderr:
