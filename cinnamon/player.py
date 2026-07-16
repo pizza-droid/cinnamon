@@ -304,7 +304,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     safe = "".join(c if c.isalnum() or c in " .-_()" else "_" for c in title) or "video"
     outtmpl = os.path.join(output_dir, f"{safe}.%(ext)s")
 
-    cmd = [exe, "--no-mtime", "--no-warnings", "--progress", "--newline", "-o", outtmpl]
+    cmd = [exe, "--no-mtime", "--no-warnings", "-o", outtmpl]
     if referer:
         cmd += ["--referer", referer]
     cmd.append(url)
@@ -340,9 +340,9 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
                 filled = int(bar_width * pct / 100)
                 bar = "█" * filled + "░" * (bar_width - filled)
                 eta_str = f" ETA {eta}" if eta else ""
-                print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}", end="", file=sys.stderr, flush=True)
+                print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}    ", end="", file=sys.stderr, flush=True)
             else:
-                print(f"\r  {line.rstrip()}", file=sys.stderr, flush=True)
+                print(f"\r  {line.rstrip():<50}", file=sys.stderr, flush=True)
 
         proc.wait()
         print(file=sys.stderr)
