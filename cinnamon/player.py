@@ -145,19 +145,33 @@ def ytdlp_install_hint():
     return "pip install yt-dlp"
 
 
+def _termux_open(url, app):
+    """Launch an Android media app via an explicit `am start` VIEW intent.
+
+    On Termux, mpv/vlc are Android apps, not CLI binaries. Relying on the
+    pkg wrapper scripts is unreliable (VLC in particular never opens), so we
+    invoke the activity manager directly.
+    """
+    components = {
+        "mpv": "is.xyz.mpv/.MPVActivity",
+        "vlc": "org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity",
+    }
+    comp = components.get(app)
+    if not comp:
+        raise PlayerLaunchError(app, f"Unknown Termux app: {app}")
+    cmd = f'am start --user 0 -a android.intent.action.VIEW -d "{url}" -n {comp}'
+    try:
+        return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        raise PlayerLaunchError(app, str(e))
+
+
 def play_vlc(url, title="", referer=None):
     exe = _vlc_path()
     if not exe:
         raise PlayerNotFoundError("vlc")
     if _in_termux():
-        # On Termux `vlc`/`mpv` are Android-app wrapper scripts that must be
-        # run through the shell; desktop flags are not supported by the app.
-        cmd = f'{exe} "{url}"'
-        try:
-            return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError as e:
-            hint = " — try reinstalling with: pkg install vlc" if "Exec format" in str(e) or "No such file" in str(e) else ""
-            raise PlayerLaunchError("VLC", str(e) + hint)
+        return _termux_open(url, "vlc")
     cmd = [exe, "--play-and-exit", f"--meta-title={title}"]
     if referer:
         cmd.append(f"--http-referrer={referer}")
@@ -174,14 +188,7 @@ def play_mpv(url, title="", referer=None):
     if not exe:
         raise PlayerNotFoundError("mpv")
     if _in_termux():
-        # On Termux `mpv` is an Android-app wrapper script that must be run
-        # through the shell; desktop flags are not supported by the app.
-        cmd = f'{exe} "{url}"'
-        try:
-            return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError as e:
-            hint = " — try reinstalling with: pkg install mpv" if "Exec format" in str(e) or "No such file" in str(e) else ""
-            raise PlayerLaunchError("mpv", str(e) + hint)
+        return _termux_open(url, "mpv")
     cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
