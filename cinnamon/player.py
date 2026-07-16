@@ -145,6 +145,34 @@ def ytdlp_install_hint():
     return "pip install yt-dlp"
 
 
+def _termux_ensure_mpv_conf():
+    """Create mpv-android's config so English audio + subtitles are on by default.
+
+    mpv-android (Termux) does not accept CLI flags via the VIEW intent, so the
+    only reliable way to make subtitles show automatically is its mpv.conf.
+    True pixel-burn-in is not possible for live HLS playback; auto-selecting
+    the English subtitle track is the practical equivalent.
+    """
+    try:
+        home = os.path.expanduser("~")
+        conf_dir = os.path.join(home, ".config", "mpv")
+        os.makedirs(conf_dir, exist_ok=True)
+        conf_path = os.path.join(conf_dir, "mpv.conf")
+        desired = "alang=eng\nslang=eng\nsub-auto=all\n"
+        if os.path.isfile(conf_path):
+            with open(conf_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+            if "slang=eng" in existing and "sub-auto=all" in existing:
+                return
+            with open(conf_path, "a", encoding="utf-8") as f:
+                f.write("\n" + desired)
+        else:
+            with open(conf_path, "w", encoding="utf-8") as f:
+                f.write(desired)
+    except OSError:
+        pass
+
+
 def _termux_open(url, app):
     """Launch an Android media app via an explicit `am start` VIEW intent.
 
@@ -159,6 +187,8 @@ def _termux_open(url, app):
     comp = components.get(app)
     if not comp:
         raise PlayerLaunchError(app, f"Unknown Termux app: {app}")
+    if app == "mpv":
+        _termux_ensure_mpv_conf()
     cmd = f'am start --user 0 -a android.intent.action.VIEW -d "{url}" -n {comp}'
     try:
         return subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
