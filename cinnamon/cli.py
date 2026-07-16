@@ -606,7 +606,7 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
     console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
 
     if media_type == "tv":
-        _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download)
+        _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download, ep_start, ep_end)
     else:
         _print_info("Movie playback not yet implemented. Stay tuned.")
 
@@ -658,7 +658,7 @@ def watch(query, tv_id, season, ep_str, scraper, player, download, info_only, qu
     if scraper is None and _is_anime(show):
         scraper = "anime"
         _print_info(f"Detected anime — using [bold]anime[/bold] scraper")
-    _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only)
+    _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, ep_start=ep_start, ep_end=ep_end)
 
 
 # ---------------------------------------------------------------------------
@@ -666,7 +666,7 @@ def watch(query, tv_id, season, ep_str, scraper, player, download, info_only, qu
 # ---------------------------------------------------------------------------
 
 
-def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download=False):
+def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only, download=False, ep_start=None, ep_end=None):
     show_name = show.get("name", "?")
     show_id = show["id"]
     details = tmdb.get_tv_details(show_id)
@@ -675,19 +675,23 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
         _print_error(f"No season data for {show_name}.")
         return
 
-    try:
-        season_choices = [questionary.Choice(title=f"Season {i}", value=i) for i in range(1, total + 1)]
-        season_chosen = questionary.select("Select a season:", choices=season_choices).unsafe_ask()
-        if not season_chosen:
-            return
-        season_num = season_chosen
-    except Exception:
-        season_num = Prompt.ask("Season", default="1")
+    if total == 1:
+        season_num = 1
+        console.print(f"  [dim]Only one season — using Season 1[/dim]")
+    else:
         try:
-            season_num = int(season_num)
-        except ValueError:
-            _print_error("Invalid season number.")
-            return
+            season_choices = [questionary.Choice(title=f"Season {i}", value=i) for i in range(1, total + 1)]
+            season_chosen = questionary.select("Select a season:", choices=season_choices).unsafe_ask()
+            if not season_chosen:
+                return
+            season_num = season_chosen
+        except Exception:
+            season_num = Prompt.ask("Season", default="1")
+            try:
+                season_num = int(season_num)
+            except ValueError:
+                _print_error("Invalid season number.")
+                return
 
     try:
         season_data = tmdb.get_season_details(show_id, season_num)
@@ -698,6 +702,11 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
     episodes = season_data.get("episodes", [])
     if not episodes:
         _print_error(f"No episodes found for S{season_num}.")
+        return
+
+    if ep_start is not None:
+        ep_name = f"S{season_num:02d}E{ep_start:02d}"
+        _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player, quality, info_only, download)
         return
 
     try:
