@@ -563,7 +563,32 @@ def _play_movie(show, scraper, player, quality, info_only, download=False):
         return
 
     if download:
-        _print_error("Movie download is not supported yet.")
+        if result.m3u8_url.startswith("magnet:"):
+            _print_error("Download not supported for torrent/magnet links.")
+            return
+        from .downloads import create as _track_create
+        from .downloads import remove as _track_remove
+        from .downloads import update as _track_update
+        track_id = _track_create({
+            "title": result.title,
+            "url": result.m3u8_url,
+            "tv_id": show_id,
+            "season": None,
+            "episode": None,
+            "quality": quality or "",
+            "referer": result.referer,
+            "scraper": scraper_name,
+        })
+        try:
+            download_video(result.m3u8_url, title=result.title, referer=result.referer, track_id=track_id)
+        except PlayerNotFoundError:
+            _print_error(f"yt-dlp not found. Install it with: {ytdlp_install_hint()}")
+            _track_remove(track_id)
+        except PlayerLaunchError as e:
+            _print_error(str(e))
+            _track_update(track_id, status="error")
+        except KeyboardInterrupt:
+            raise
         return
 
     player_choice = player or config.get("default_player", "auto")
