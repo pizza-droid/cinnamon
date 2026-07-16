@@ -45,13 +45,16 @@ def _decode_custom_hex(encoded):
     return "".join(out)
 
 def _decrypt_tobeparsed(tp):
-    from Crypto.Cipher import AES
+    try:
+        from Crypto.Cipher import AES
 
-    raw = __import__("base64").b64decode(tp)
-    iv, ct = raw[1:13], raw[13:-16]
-    ctr_iv = iv + b"\x00\x00\x00\x02"
-    cipher = AES.new(_get_key(), AES.MODE_CTR, nonce=b"", initial_value=ctr_iv)
-    return json.loads(cipher.decrypt(ct).decode("utf-8"))
+        raw = __import__("base64").b64decode(tp)
+        iv, ct = raw[1:13], raw[13:-16]
+        ctr_iv = iv + b"\x00\x00\x00\x02"
+        cipher = AES.new(_get_key(), AES.MODE_CTR, nonce=b"", initial_value=ctr_iv)
+        return json.loads(cipher.decrypt(ct).decode("utf-8"))
+    except Exception:
+        return None
 
 _SEARCH_GQL = """query ($search: SearchInput) {
   shows(search: $search, limit: 10, page: 1, translationType: sub, countryOrigin: ALL) {
@@ -101,10 +104,16 @@ def _allanime_episodes(session, show_id):
 
 def _allanime_sources(session, show_id, ep_str, tt="sub"):
     data = _gql_src(session, {"showId": show_id, "translationType": tt, "episodeString": ep_str})
-    tp = data.get("data", {}).get("tobeparsed", "")
+    tp = data.get("data", {}).get("tobeparsed", "") if isinstance(data, dict) else ""
     if not tp:
         raise ScraperNetworkError("allanime", "No tobeparsed data in response")
-    return _decrypt_tobeparsed(tp).get("episode", {}).get("sourceUrls", [])
+    parsed = _decrypt_tobeparsed(tp)
+    if not parsed:
+        raise ScraperNoStreamError("allanime", "Failed to decrypt stream sources (source format may have changed)")
+    episode = parsed.get("episode")
+    if not isinstance(episode, dict):
+        raise ScraperNoStreamError("allanime", "No stream data for this episode (source may be unavailable)")
+    return episode.get("sourceUrls", [])
 
 def _find_show(session, name):
     results = _allanime_search(session, name)
