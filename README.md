@@ -127,4 +127,6 @@ cinnamon config set-api-key YOUR_KEY
 ## Notes
 
 This project is mostly vibe coded and my lazy ass didnt even write more than a 1000 lines.
-feel free to give me feedback so we can improve this project and make it as good as possible
+feel free to give us feedback so we can improve this project and make it as good as possible.
+
+inspired by (ani-cli)[https://github.com/pizza-droid/cinnamon]
