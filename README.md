@@ -1,6 +1,6 @@
 # cinnamon
 
-> Watch TV shows, movies, and anime from your terminal. Search, pick a title, and it plays in mpv or VLC.
+Watch TV shows, movies, and anime from your terminal. Search, pick a title, and it plays in mpv or VLC.
 
 [![version](https://img.shields.io/pypi/v/cinnamon-cli)](https://pypi.org/project/cinnamon-cli/)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](#)
@@ -18,7 +18,9 @@ pip install cinnamon-cli
 cinnamon setup
 ```
 
-The setup wizard asks for a TMDB API key ([free account](https://www.themoviedb.org/signup)), your preferred player, and a color theme.
+> The setup wizard asks for a TMDB API key ([Create a free account here](https://www.themoviedb.org/signup)), the api key is used for show and movie information.
+
+
 
 ### Get a player
 > Please note that MacOS version has not been tested since we dont have access to a mac
@@ -37,7 +39,7 @@ cinnamon search "Breaking Bad"
 cinnamon search "Inception"
 ```
 
-For Anime you can run:
+For Anime you can run (Works even if you dont have an api key):
 
 ```bash
 cinnamon anime "Chainsaw Man"
