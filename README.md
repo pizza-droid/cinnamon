@@ -49,8 +49,8 @@ By default you'll be asked whether to watch sub or dub. Skip the prompt with
 `-sub` / `-dub`:
 
 ```bash
-cinnamon anime "Chainsaw Man" --dub
-cinnamon anime "Frieren" --sub
+cinnamon anime "Chainsaw Man" --sub
+cinnamon anime "Frieren" --dub
 ```
 
 
