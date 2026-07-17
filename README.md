@@ -14,7 +14,7 @@ You'll need **Python 3.10+** and either [mpv](https://mpv.io) or [VLC](https://v
 ### Install
 
 ```bash
-pip install https://github.com/pizza-droid/cinnamon/archive/refs/tags/v0.2.15.tar.gz
+pip install https://github.com/pizza-droid/cinnamon/archive/refs/tags/v0.2.19.tar.gz
 cinnamon setup
 ```
 
@@ -75,7 +75,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 | `cinnamon watch --id 123 -s 2 -e 5` | Go straight to S2E5 without menus |
 | `cinnamon play-url <url>` | Play any m3u8/mp4 link |
 | `cinnamon resume` | Continue an interrupted download |
-| `cinnamon history` | Show watch history and resume from last episode |
+| `cinnamon history` | Show watch history and resume from the next unwatched episode |
 | `cinnamon history --clear` | Clear all watch history |
 | `cinnamon scrapers` | See available streaming sources |
 | `cinnamon install <name>` | Add an optional scraper (vidsrc, torrentio) |
@@ -102,7 +102,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 
 | Name | For |
 |---|---|
-| `webstream` | TV shows from vidlink.pro |
+| `webstream` | TV shows & movies from vixsrc.to and vidlink.pro (HLS) |
 | `anime` | Anime from allanime.day via mp4upload |
 
 **Optional (install with `cinnamon install <name>`):**
@@ -133,7 +133,7 @@ cinnamon config set-api-key YOUR_KEY
 
 ## Notes
 
-This project is mostly vibe coded and our lazy ass didnt even write more than 300 lines.
+This project started as a vibe-coded weekend hack and has grown from there.
 feel free to give us feedback so we can improve this project and make it as good as possible.
 
 inspired by [ani-cli](https://github.com/pystardust/ani-cli)
