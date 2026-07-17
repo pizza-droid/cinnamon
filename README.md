@@ -21,6 +21,7 @@ cinnamon setup
 The setup wizard asks for a TMDB API key ([free account](https://www.themoviedb.org/signup)), your preferred player, and a color theme.
 
 ### Get a player
+> Please note that MacOS version has not been tested since we dont have access to a mac
 
 | Platform | mpv | VLC |
 |---|---|---|
