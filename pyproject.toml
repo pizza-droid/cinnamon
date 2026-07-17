@@ -3,19 +3,34 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cinnamon"
+name = "cinnamon-cli"
 version = "0.2.19"
-description = "CLI to search TV shows via TMDB, scrape m3u8 links, and play in VLC/mpv"
+description = "CLI to search TV shows, movies & anime via TMDB/AniList, scrape m3u8 links, and play in VLC/mpv"
 license = { text = "CC BY-NC 4.0" }
+readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "pizza-droid" },
+]
+keywords = ["tv", "movies", "anime", "streaming", "mpv", "vlc", "tmdb", "anilist", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
 dependencies = [
     "click>=8",
     "requests>=2",
     "rich>=13",
     "questionary>=2",
-    "textual>=8",
     "pycryptodome>=3",
 ]
+[project.urls]
+Homepage = "https://github.com/pizza-droid/cinnamon"
+Repository = "https://github.com/pizza-droid/cinnamon"
+Issues = "https://github.com/pizza-droid/cinnamon/issues"
 
 [project.optional-dependencies]
 scrapers = [
