@@ -321,7 +321,8 @@ def play_mpv(url, title="", referer=None):
         raise PlayerNotFoundError("mpv")
     if _in_termux():
         return _termux_open(url, "mpv", referer=referer, user_agent=DEFAULT_UA)
-    cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes"]
+    cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes",
+           "--seekable=yes", "--force-seekable=yes", "--cache=yes", "--cache-secs=300"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
     cmd.append(url)
