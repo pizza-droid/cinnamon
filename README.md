@@ -34,6 +34,7 @@ The setup wizard asks for a TMDB API key ([free account](https://www.themoviedb.
 
 ```bash
 cinnamon search "Breaking Bad"
+cinnamon search "Inception"
 ```
 
 For Anime you can run:
@@ -43,14 +44,7 @@ cinnamon anime "Chainsaw Man"
 ```
 
 
-Movies work the same way:
-
-```bash
-cinnamon search "Inception"
-cinnamon watch --type movie --query "Inception"
-```
-
-you can also run this:
+you can also run it like this:
 
 ```bash
 cinnamon Inception
