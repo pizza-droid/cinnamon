@@ -1697,7 +1697,7 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
 
 @cli.command()
 def update():
-    """Check for and install the latest version of cinnamon from GitHub."""
+    """Check for and install the latest version of cinnamon from PyPI."""
     theme = get_theme()
 
     latest = _latest_version()
@@ -1716,10 +1716,10 @@ def update():
     console.print(f"  [{theme['info']}]Updating:[/] {current} → [bold]{latest}[/bold]")
     console.print()
 
-    url = f"https://github.com/{_UPDATE_REPO}/archive/refs/tags/v{latest}.tar.gz"
+    target = "cinnamon-cli"
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "pip", "install", "--upgrade", url],
+            [sys.executable, "-m", "pip", "install", "--upgrade", target],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
         )
@@ -1744,7 +1744,7 @@ def update():
                 _print_error(
                     f"pip reported success but version is still {current}.",
                     "You may be installing into a different Python environment. Try: "
-                    f"python -m pip install --upgrade {url}",
+                    f"python -m pip install --upgrade {target}",
                 )
         else:
             _print_error(f"Update failed (exit code {proc.returncode}).")
