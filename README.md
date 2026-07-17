@@ -36,32 +36,38 @@ The setup wizard asks for a TMDB API key ([free account](https://www.themoviedb.
 cinnamon search "Breaking Bad"
 ```
 
-Pick a title, pick an episode (for TV) or just play (for movies), and it plays. Anime is detected automatically:
+For Anime you can run:
 
 ```bash
-cinnamon search "Chainsaw Man"
+cinnamon anime "Chainsaw Man"
 ```
 
-Movies work the same way — search returns both TV and movies, and you pick:
+
+Movies work the same way:
 
 ```bash
 cinnamon search "Inception"
 cinnamon watch --type movie --query "Inception"
 ```
 
-### Download episodes
-
-Downloading needs [yt-dlp](https://github.com/yt-dlp/yt-dlp). Install it together with cinnamon in one step:
+you can also run this:
 
 ```bash
-pip install "cinnamon-cli[download]"
+cinnamon Inception
+cinnamon Breaking bad
+cinnamon chainsaw man
 ```
 
-Or install yt-dlp on its own (any platform):
+### Download episodes
+
+Downloading needs [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
 
 ```bash
 pip install yt-dlp
 ```
+
+Now you can run:
 
 ```bash
 cinnamon search "Breaking Bad" -d -e 1-5
