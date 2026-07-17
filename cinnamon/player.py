@@ -275,10 +275,13 @@ def _launch(player_name, cmd):
 
     # Give the player a moment to fail (missing display, codec, etc.).
     try:
-        proc.wait(timeout=2.0)
+        proc.wait(timeout=3.0)
     except subprocess.TimeoutExpired:
-        # Still alive after 2s — it started successfully. Detach stderr.
-        if proc.stderr and not proc.stderr.closed:
+        # Still alive after 3s — it started successfully. Detach stderr.
+        if proc.poll() is not None:
+            # Exited in the gap between the timeout firing and us checking.
+            pass
+        elif proc.stderr and not proc.stderr.closed:
             try:
                 proc.stderr.close()
             except OSError:
@@ -298,7 +301,7 @@ def _launch(player_name, cmd):
     elif err:
         msg += f": {err[:300]}"
     else:
-        msg += " (no error output — likely no display or missing dependencies)."
+        msg += " — the stream could not be loaded (source may be down or blocked). Try another scraper, quality, or title."
     raise PlayerLaunchError(player_name, msg)
 
 
@@ -322,7 +325,8 @@ def play_mpv(url, title="", referer=None):
     if _in_termux():
         return _termux_open(url, "mpv", referer=referer, user_agent=DEFAULT_UA)
     cmd = [exe, f"--title={title}", "--alang=eng", "--slang=eng", "--subs-with-matching-audio=yes",
-           "--seekable=yes", "--force-seekable=yes", "--cache=yes", "--cache-secs=300"]
+           "--cache=yes", "--cache-secs=300", "--ytdl=no",
+           "--network-timeout=20", "--keep-open=no"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
     cmd.append(url)

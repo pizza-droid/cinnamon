@@ -11,6 +11,23 @@ from ..player import DEFAULT_UA as UA
 TIMEOUT = 15
 
 
+
+def _verify_playlist(session, master_url, source):
+    """Fetch the master playlist and confirm it is a real HLS playlist.
+
+    vixsrc sometimes returns an error page (e.g. HTTP 502) instead of a
+    playlist. Returning that to the player yields a silent black screen, so we
+    raise ScraperNoStreamError to let the caller fall back to another source."""
+    try:
+        resp = session.get(master_url, timeout=TIMEOUT)
+    except requests.exceptions.RequestException as e:
+        raise ScraperNoStreamError(source, f"Master playlist request failed: {e}")
+    if resp.status_code != 200 or not resp.text.lstrip().startswith("#EXTM3U"):
+        raise ScraperNoStreamError(source, f"Master playlist unavailable (status {resp.status_code}).")
+    return resp
+
+
+
 class WebStreamScraper(BaseScraper):
     name = "webstream"
     description = "HTTP streams from vixsrc.to and vidlink.pro (no browser needed)"
@@ -102,10 +119,13 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
     session.headers.update({"User-Agent": UA})
 
     api_url = f"https://vixsrc.to/api/tv/{tmdb_id}/{season}/{episode}?lang=en"
-    embed_resp = session.get(api_url, timeout=TIMEOUT, headers={
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Referer": "https://vixsrc.to",
-    })
+    try:
+        embed_resp = session.get(api_url, timeout=TIMEOUT, headers={
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Referer": "https://vixsrc.to",
+        })
+    except requests.exceptions.RequestException as e:
+        raise ScraperNetworkError("vixsrc", f"API request failed: {e}")
     if embed_resp.status_code != 200:
         raise ScraperNetworkError("vixsrc", f"API returned {embed_resp.status_code}")
     embed_src = embed_resp.json().get("src")
@@ -115,9 +135,12 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
     full_embed = "https://vixsrc.to" + embed_src
     sep = "&" if "?" in full_embed else "?"
     full_embed += f"{sep}lang=en"
-    html = session.get(full_embed, timeout=TIMEOUT, headers={
-        "Accept": "text/html,application/xhtml+xml,*/*",
-    }).text
+    try:
+        html = session.get(full_embed, timeout=TIMEOUT, headers={
+            "Accept": "text/html,application/xhtml+xml,*/*",
+        }).text
+    except requests.exceptions.RequestException as e:
+        raise ScraperNetworkError("vixsrc", f"Embed page request failed: {e}")
 
     token = re.search(r'token["\']\s*:\s*["\']([^"\']+)', html)
     expires = re.search(r'expires["\']\s*:\s*["\']([^"\']+)', html)
@@ -129,12 +152,11 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
     master_url = f'{playlist.group(1)}{sep}token={token.group(1)}&expires={expires.group(1)}&h=1&lang=en'
 
     if not quality:
+        _verify_playlist(session, master_url, "vixsrc")
         return master_url
 
     # Parse master playlist and filter by quality
-    master_resp = session.get(master_url, timeout=TIMEOUT)
-    if master_resp.status_code != 200:
-        return master_url
+    master_resp = _verify_playlist(session, master_url, "vixsrc")
 
     variants = re.findall(
         r'#EXT-X-STREAM-INF:.*?RESOLUTION=\d+x(\d+).*?\n(https?://\S+)',
@@ -195,10 +217,13 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
     session.headers.update({"User-Agent": UA})
 
     api_url = f"https://vixsrc.to/api/movie/{tmdb_id}?lang=en"
-    embed_resp = session.get(api_url, timeout=TIMEOUT, headers={
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Referer": "https://vixsrc.to",
-    })
+    try:
+        embed_resp = session.get(api_url, timeout=TIMEOUT, headers={
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Referer": "https://vixsrc.to",
+        })
+    except requests.exceptions.RequestException as e:
+        raise ScraperNetworkError("vixsrc", f"API request failed: {e}")
     if embed_resp.status_code != 200:
         raise ScraperNetworkError("vixsrc", f"API returned {embed_resp.status_code}")
     embed_src = embed_resp.json().get("src")
@@ -208,9 +233,12 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
     full_embed = "https://vixsrc.to" + embed_src
     sep = "&" if "?" in full_embed else "?"
     full_embed += f"{sep}lang=en"
-    html = session.get(full_embed, timeout=TIMEOUT, headers={
-        "Accept": "text/html,application/xhtml+xml,*/*",
-    }).text
+    try:
+        html = session.get(full_embed, timeout=TIMEOUT, headers={
+            "Accept": "text/html,application/xhtml+xml,*/*",
+        }).text
+    except requests.exceptions.RequestException as e:
+        raise ScraperNetworkError("vixsrc", f"Embed page request failed: {e}")
 
     token = re.search(r'token["\']\s*:\s*["\']([^"\']+)', html)
     expires = re.search(r'expires["\']\s*:\s*["\']([^"\']+)', html)
@@ -222,11 +250,10 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
     master_url = f'{playlist.group(1)}{sep}token={token.group(1)}&expires={expires.group(1)}&h=1&lang=en'
 
     if not quality:
+        _verify_playlist(session, master_url, "vixsrc")
         return master_url
 
-    master_resp = session.get(master_url, timeout=TIMEOUT)
-    if master_resp.status_code != 200:
-        return master_url
+    master_resp = _verify_playlist(session, master_url, "vixsrc")
 
     variants = re.findall(
         r'#EXT-X-STREAM-INF:.*?RESOLUTION=\d+x(\d+).*?\n(https?://\S+)',

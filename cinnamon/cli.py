@@ -520,7 +520,13 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         try:
             with console.status(f"Resolving via [bold]{attempt_name}[/bold]...", spinner="dots"):
                 with concurrent.futures.ThreadPoolExecutor() as pool:
-                    info = {"show": show_name, "tv_id": show_id, "season": season_num, "episode": ep_num}
+                    info = {"show": show_name, "tv_id": show_id}
+                    if season_num is not None:
+                        info["season"] = season_num
+                    if ep_num is not None:
+                        info["episode"] = ep_num
+                    else:
+                        info["media_type"] = "movie"
                     if quality:
                         info["quality"] = quality
                     if translation:
@@ -625,75 +631,49 @@ def _play_movie(show, scraper, player, quality, info_only, download=False):
         return
 
     console.print()
-    try:
-        with console.status(f"Resolving via [bold]{scraper_name}[/bold]...", spinner="dots"):
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                info = {"show": show_name, "movie_id": show_id, "media_type": "movie"}
-                if quality:
-                    info["quality"] = quality
-                future = pool.submit(scraper_instance.resolve, info)
-                result = future.result(timeout=RESOLVE_TIMEOUT)
-    except concurrent.futures.TimeoutError:
-        _print_error(f"Scraper [bold]{scraper_name}[/bold] timed out after {RESOLVE_TIMEOUT}s.")
-        return
-    except ScraperError as e:
-        _print_error(str(e))
-        return
 
-    if not result:
-        _print_error(f"Scraper [bold]{scraper_name}[/bold] returned nothing.")
-        return
+    movie_show = {"name": show_name, "id": show_id, "title": show_name}
+    while True:
+        proc = _resolve_and_play(
+            movie_show, None, None, f"{show_name}", scraper_name,
+            player, quality, info_only, download,
+        )
 
-    theme = get_theme()
-    console.clear()
-    console.print(Panel(
-        f"[{theme['success']}]Stream ready![/{theme['success']}]  [bold]{result.title}[/bold]",
-        border_style=theme["success"],
-    ))
-
-    _set_history(show_name, None, None, scraper=scraper_name, quality=quality)
-
-    if info_only:
-        console.print(f"  [{theme['dim']}]URL:[/{theme['dim']}] {result.m3u8_url}")
-        return
-
-    if download:
-        if result.m3u8_url.startswith("magnet:"):
-            _print_error("Download not supported for torrent/magnet links.")
+        if proc is None or info_only or download:
             return
-        from .downloads import create as _track_create
-        from .downloads import remove as _track_remove
-        from .downloads import update as _track_update
-        track_id = _track_create({
-            "title": result.title,
-            "url": result.m3u8_url,
-            "tv_id": show_id,
-            "season": None,
-            "episode": None,
-            "quality": quality or "",
-            "referer": result.referer,
-            "scraper": scraper_name,
-        })
-        try:
-            download_video(result.m3u8_url, title=result.title, referer=result.referer, track_id=track_id)
-        except PlayerNotFoundError:
-            _print_error(f"yt-dlp not found. Install it with: {ytdlp_install_hint()}")
-            _track_remove(track_id)
-        except PlayerLaunchError as e:
-            _print_error(str(e))
-            _track_update(track_id, status="error")
-        except KeyboardInterrupt:
-            raise
-        return
 
-    player_choice = player or config.get("default_player", "auto")
-    try:
-        console.print(f"  [{theme['info']}]Opening in {player_choice.upper()}...[/{theme['info']}]")
-        play(result.m3u8_url, title=result.title, player=player_choice, referer=result.referer)
-    except PlayerNotFoundError as e:
-        _print_error(str(e))
-    except Exception as e:
-        _print_error("Failed to launch player.", str(e))
+        try:
+            proc.wait()
+        except AttributeError:
+            return
+
+        _set_history(show_name, None, None, scraper=scraper_name, quality=quality)
+
+        console.print()
+        try:
+            choice = _select(
+                "Options",
+                choices=[
+                    questionary.Choice(title="Replay", value="replay"),
+                    questionary.Choice(title="Change quality", value="quality"),
+                    questionary.Choice(title="Quit", value="quit"),
+                ],
+            )
+        except Exception:
+            return
+
+        if not choice or choice == "quit":
+            return
+        elif choice == "quality":
+            try:
+                quality = _select(
+                    "Quality",
+                    choices=["480p", "720p", "1080p", "best", "worst"],
+                    default=quality or "best",
+                )
+            except Exception:
+                quality = Prompt.ask("Quality (480p, 720p, 1080p, best, worst)", default=quality or "best")
+        # "replay" falls through and loops with the same quality.
 
 
 # ---------------------------------------------------------------------------
@@ -987,9 +967,24 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
 def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download, info_only, quality):
     """Browse episodes interactively and play one."""
     _check_for_updates()
-    tmdb = _get_tmdb()
 
     ep_start, ep_end = _parse_episode(ep_str) if ep_str else (None, None)
+
+    # Explicit id given: skip TMDB entirely (no API key needed) and let the
+    # scraper resolve the stream straight from the id.
+    if tmdb_id and media_type == "movie":
+        show = {"title": f"Movie {tmdb_id}", "id": tmdb_id}
+        _play_movie(show, scraper, player, quality, info_only, download)
+        return
+    if tmdb_id and media_type == "tv":
+        show = {"name": f"Show {tmdb_id}", "id": tmdb_id}
+        if season is not None and ep_start is not None:
+            _play_with_menu(show, season, ep_start, ep_end, f"E{ep_start}", scraper, player, quality, info_only, download)
+        else:
+            _interactive_episode_picker(None, show, scraper, player, quality, info_only, ep_start=ep_start, ep_end=ep_end)
+        return
+
+    tmdb = _get_tmdb()
 
     # Explicit movie request.
     if media_type == "movie":
@@ -999,8 +994,6 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
             if not show:
                 return
             tmdb_id = show["id"]
-        elif tmdb_id:
-            show = tmdb.get_movie_details(tmdb_id)
         else:
             query = _prompt("Search for a movie")
             results = tmdb.search_movie(query).get("results", [])
@@ -1013,7 +1006,9 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
     # Explicit TV request (or a TMDB id with no type hint).
     if media_type == "tv" or (tmdb_id and media_type is None):
         if tmdb_id:
-            show = tmdb.get_tv_details(tmdb_id)
+            # Explicit id given: skip the TMDB metadata lookup (no API key
+            # needed); the scraper resolves the stream from the id.
+            show = {"name": f"Show {tmdb_id}", "id": tmdb_id}
         elif query:
             results = tmdb.search_tv(query).get("results", [])
             show = _pick_with_arrows(results, "name", "first_air_date", "Select a show:")
@@ -1534,7 +1529,9 @@ def install(name):
 @click.option("--player", help="Player: vlc, mpv, or auto")
 @click.option("-q", "--quality", help="Video quality: 480p, 720p, 1080p, best, worst")
 @click.option("--info-only", is_flag=True, help="Show the stream URL without playing")
-def anime(query, season, ep_str, download, player, quality, info_only):
+@click.option("--sub", "prefer_sub", is_flag=True, help="Prefer subtitled audio")
+@click.option("--dub", "prefer_dub", is_flag=True, help="Prefer dubbed audio")
+def anime(query, season, ep_str, download, player, quality, info_only, prefer_sub, prefer_dub):
     """Search anime via AniList (no API key needed) and stream from allanime."""
     _check_for_updates()
 
@@ -1611,10 +1608,14 @@ def anime(query, season, ep_str, download, player, quality, info_only):
         _print_error("No episode data from allanime.")
         return
 
-    _run_anime_flow(show_name, episodes_detail, season, ep_str, player, quality, info_only, download)
+    if prefer_sub and prefer_dub:
+        _print_info("Both --sub and --dub given; ignoring and asking.")
+        prefer_sub = prefer_dub = False
+    translation = "sub" if prefer_sub else ("dub" if prefer_dub else None)
+    _run_anime_flow(show_name, episodes_detail, season, ep_str, player, quality, info_only, download, translation=translation)
 
 
-def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player=None, quality=None, info_only=False, download=False):
+def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player=None, quality=None, info_only=False, download=False, translation=None):
     """Drive the episode picker from allanime's *available* episodes (not TMDB's
     full list), so we never offer an episode the anime source doesn't have."""
     parsed = {}
@@ -1648,7 +1649,9 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
         return
 
     tt_keys = list(season_data.keys())
-    if "sub" in tt_keys and len(tt_keys) > 1:
+    if translation and translation in tt_keys:
+        tt = translation
+    elif "sub" in tt_keys and len(tt_keys) > 1:
         try:
             tt = _select("Translation:", choices=[
                 questionary.Choice(title=k, value=k) for k in tt_keys

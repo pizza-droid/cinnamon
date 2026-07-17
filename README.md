@@ -45,6 +45,14 @@ For Anime you can run (Works even if you dont have an api key):
 cinnamon anime "Chainsaw Man"
 ```
 
+By default you'll be asked whether to watch sub or dub. Skip the prompt with
+`-sub` / `-dub`:
+
+```bash
+cinnamon anime "Chainsaw Man" --dub
+cinnamon anime "Frieren" --sub
+```
+
 
 you can also run it like this:
 
@@ -97,6 +105,8 @@ cinnamon search "Breaking Bad" -d -e 1-5
 | `--scraper <name>` | Force a specific scraper |
 | `--player mpv` or `--player vlc` | Choose player |
 | `-q 720p` | Pick quality (480p, 720p, 1080p, best, worst) |
+| `--sub` | Prefer subtitled audio (skips the translation prompt) |
+| `--dub` | Prefer dubbed audio (skips the translation prompt) |
 | `--info-only` | Just print the stream URL |
 
 ---
