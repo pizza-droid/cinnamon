@@ -1,7 +1,9 @@
+import base64
+import hashlib
 import json
 import re
 import time as _time
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 
@@ -12,47 +14,150 @@ from .base import BaseScraper, ScraperResult
 TIMEOUT = 15
 API = "https://api.allanime.day/api"
 
-_ALLANIME_KEY = None
+# ---------------------------------------------------------------------------
+# AllAnime "aaReq" crypto gate.
+#
+# AllAnime now protects the episode-source GraphQL query behind an AES-GCM
+# signed token (aaReq) that must be sent inside the request's `extensions`
+# object, otherwise the API returns `AA_CRYPTO_MISSING`. The token's epoch and
+# key rotate every few days and live in the frontend's `window.__aaCrypto` plus
+# the app JS chunk, so we fetch them at runtime and fall back to the last known
+# good hardcoded values when that fails. The tobeparsed response is encrypted
+# with the same key (or a static legacy key), so decoding tries both.
+# ---------------------------------------------------------------------------
 
-def _get_key():
-    global _ALLANIME_KEY
-    if not _ALLANIME_KEY:
-        import hashlib
-        _ALLANIME_KEY = hashlib.sha256(b"Xot36i3lK3:v1").digest()
-    return _ALLANIME_KEY
+_MKISSA_URL = "https://mkissa.to/"
+_CDN_IMMUTABLE = "https://cdn.allanime.day/all/mk/_app/immutable/"
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+# Last known good values, only used when the runtime fetch fails.
+# Rotated 2026-07; the runtime fetch (_aa_fetch) overrides these with live
+# values from the site so the token stays valid between code updates.
+_FALLBACK_EPOCH = 4130
+_FALLBACK_MASK = "5264513ba898cb78c5c646bc1c12f2965a53a99891d91e83a2bf9244c36cca41"
+_FALLBACK_PART_B = "nSMmjt8SIaRRj6ebdfimy1qXlUBuvMoBlPoUiSFoORg="
+_FALLBACK_QUERY_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
+# Static legacy key AllAnime also signs tobeparsed with, depending on rotation.
+_RESP_STATIC_KEY = hashlib.sha256(b"Xot36i3lK3:v1").digest()
 
-_HEX_MAP = {
-    "79": "A", "7a": "B", "7b": "C", "7c": "D", "7d": "E", "7e": "F", "7f": "G",
-    "70": "H", "71": "I", "72": "J", "73": "K", "74": "L", "75": "M", "76": "N",
-    "77": "O", "68": "P", "69": "Q", "6a": "R", "6b": "S", "6c": "T", "6d": "U",
-    "6e": "V", "6f": "W", "60": "X", "61": "Y", "62": "Z",
-    "59": "a", "5a": "b", "5b": "c", "5c": "d", "5d": "e", "5e": "f", "5f": "g",
-    "50": "h", "51": "i", "52": "j", "53": "k", "54": "l", "55": "m", "56": "n",
-    "57": "o", "48": "p", "49": "q", "4a": "r", "4b": "s", "4c": "t", "4d": "u",
-    "4e": "v", "4f": "w", "40": "x", "41": "y", "42": "z",
-    "08": "0", "09": "1", "0a": "2", "0b": "3", "0c": "4", "0d": "5", "0e": "6",
-    "0f": "7", "00": "8", "01": "9",
-    "15": "-", "16": ".", "67": "_", "46": "~", "02": ":", "17": "/", "07": "?",
-    "1b": "#", "63": "[", "65": "]", "78": "@", "19": "!", "1c": "$", "1e": "&",
-    "10": "(", "11": ")", "12": "*", "13": "+", "14": ",", "03": ";", "05": "=",
-    "1d": "%",
-}
+_crypto_cache = None  # (expires_ms, epoch, key, mask, query_hash)
 
-def _decode_custom_hex(encoded):
-    out = []
-    for i in range(0, len(encoded), 2):
-        out.append(_HEX_MAP.get(encoded[i:i+2], "?"))
-    return "".join(out)
 
-def _decrypt_tobeparsed(tp):
+def _aa_key(mask_hex: str, part_b: str) -> bytes:
+    return bytes(a ^ b for a, b in zip(bytes.fromhex(mask_hex), base64.b64decode(part_b)))
+
+
+def _aa_source_query_hash(chunk_js: str) -> Optional[str]:
+    template = next(
+        (t for t in re.findall(r"`([^`]*)`", chunk_js)
+         if "sourceUrls" in t and "episode(" in t),
+        None,
+    )
+    if template is None:
+        return None
+
+    def resolve(tmpl: str, depth: int = 0) -> str:
+        if depth > 6:
+            return tmpl
+        for name in re.findall(r"\$\{([^}]+)\}", tmpl):
+            if name.endswith("()"):
+                fn = re.search(
+                    r"\b" + re.escape(name[:-2]) +
+                    r"\s*=\s*\w+\s*=>\s*\w+\s*\?\s*`[^`]*`\s*:\s*`([^`]*)`",
+                    chunk_js,
+                )
+                repl = fn.group(1) if fn else ""
+            else:
+                var = re.search(r"\b" + re.escape(name) + r"\s*=\s*`([^`]*)`", chunk_js)
+                repl = resolve(var.group(1), depth + 1) if var else ""
+            tmpl = tmpl.replace("${" + name + "}", repl)
+        return tmpl
+
+    query = resolve(template)
+    if "${" in query:
+        return None
+    return hashlib.sha256(query.encode()).hexdigest()
+
+
+def _aa_fetch():
+    """Fetch (expires_ms, epoch, key, mask, query_hash) from the live site."""
     try:
-        from Crypto.Cipher import AES
+        s = requests.Session()
+        s.headers.update({"User-Agent": _BROWSER_UA})
+        html = s.get(_MKISSA_URL, timeout=10).text
+        aa = json.loads(re.search(r"window\.__aaCrypto\s*=\s*(\{.*?\})", html).group(1))
+        part_b, epoch = aa["partB"], int(aa["epoch"])
+        expires = max(aa.get("switchAt", 0) + aa.get("graceMs", 0),
+                      _time.time() * 1000 + 3600_000)
+        mask = None
+        qh = _FALLBACK_QUERY_HASH
 
-        raw = __import__("base64").b64decode(tp)
-        iv, ct = raw[1:13], raw[13:-16]
-        ctr_iv = iv + b"\x00\x00\x00\x02"
-        cipher = AES.new(_get_key(), AES.MODE_CTR, nonce=b"", initial_value=ctr_iv)
-        return json.loads(cipher.decrypt(ct).decode("utf-8"))
+        app = re.search(r"_app/immutable/(entry/app\.[^\"']+\.js)", html)
+        if app:
+            app_js = s.get(_CDN_IMMUTABLE + app.group(1), timeout=10).text
+            for chunk in re.findall(
+                r"chunks/[A-Za-z0-9_\-]+\.js", app_js
+            ):
+                js = s.get(_CDN_IMMUTABLE + chunk, timeout=10).text
+                if "__aaCrypto" not in js:
+                    continue
+                masks = re.findall(r"[0-9a-f]{64}", js)
+                if len(masks) == 1:
+                    mask = masks[0]
+                    qh = _aa_source_query_hash(js) or _FALLBACK_QUERY_HASH
+                break
+
+        # If the mask could not be scraped, fall back to the last known good
+        # mask but keep the freshly fetched epoch/partB so the token is at
+        # least current (server returns STALE, not MISSING, and the next code
+        # update can ship the new mask).
+        if mask is None:
+            mask = _FALLBACK_MASK
+        return expires, epoch, _aa_key(mask, part_b), mask, qh
+    except Exception:
+        return None
+
+
+def _aa_current() -> Tuple[int, bytes, str]:
+    global _crypto_cache
+    if _crypto_cache is None or _crypto_cache[0] <= _time.time() * 1000:
+        fetched = _aa_fetch()
+        if fetched is not None:
+            _crypto_cache = fetched
+    if _crypto_cache is not None:
+        return _crypto_cache[1], _crypto_cache[2], _crypto_cache[4]
+    return _FALLBACK_EPOCH, _aa_key(_FALLBACK_MASK, _FALLBACK_PART_B), _FALLBACK_QUERY_HASH
+
+
+def _aa_build_token() -> Tuple[str, str, bytes]:
+    epoch, key, query_hash = _aa_current()
+    ts = int(_time.time() * 1000) // 300000 * 300000
+    payload = {"v": 1, "ts": ts, "epoch": epoch, "qh": query_hash}
+    iv = hashlib.sha256(f"{epoch}:{query_hash}:{ts}".encode()).digest()[:12]
+    from Crypto.Cipher import AES
+    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+    ciphertext, tag = cipher.encrypt_and_digest(
+        json.dumps(payload, separators=(",", ":")).encode()
+    )
+    token = base64.b64encode(b"\x01" + iv + ciphertext + tag).decode()
+    return query_hash, token, key
+
+
+def _decrypt_tobeparsed(tp: str, key: bytes):
+    try:
+        raw = base64.b64decode(tp)
+        iv, ciphertext, tag = raw[1:13], raw[13:-16], raw[-16:]
+        from Crypto.Cipher import AES
+        for candidate in (key, _RESP_STATIC_KEY):
+            try:
+                cipher = AES.new(candidate, AES.MODE_GCM, nonce=iv)
+                plain = cipher.decrypt_and_verify(ciphertext, tag)
+                return json.loads(plain.decode("utf-8"))
+            except ValueError:
+                continue
+        return None
     except Exception:
         return None
 
@@ -65,8 +170,6 @@ _SEARCH_GQL = """query ($search: SearchInput) {
 _EP_GQL = "query ($showId: String!) { show(_id: $showId) { _id availableEpisodesDetail } }"
 
 _SRC_GQL = "query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode(showId: $showId translationType: $translationType episodeString: $episodeString) { episodeString sourceUrls } }"
-
-_QUERY_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 
 _LAST_REQUEST = 0.0
 
@@ -82,12 +185,20 @@ def _gql(session, query, variables):
         raise ScraperNetworkError("allanime", f"GraphQL returned {resp.status_code}")
     return resp.json()
 
-def _gql_src(session, variables):
+def _gql_src(session, variables, query_hash=None, aa_req=None):
     global _LAST_REQUEST
     elapsed = _time.time() - _LAST_REQUEST
     if elapsed < 3.5:
         _time.sleep(3.5 - elapsed)
-    body = json.dumps({"extensions": {"persistedQuery": {"version": 1, "sha256Hash": _QUERY_HASH}}, "variables": json.dumps(variables)}, ensure_ascii=False, separators=(",", ":"))
+    if query_hash is None:
+        query_hash = _FALLBACK_QUERY_HASH
+    extensions = {"persistedQuery": {"version": 1, "sha256Hash": query_hash}}
+    if aa_req is not None:
+        extensions["aaReq"] = aa_req
+    body = json.dumps(
+        {"extensions": extensions, "variables": json.dumps(variables)},
+        ensure_ascii=False, separators=(",", ":"),
+    )
     resp = session.post(API, data=body, timeout=TIMEOUT, headers={"Content-Type": "application/json"})
     _LAST_REQUEST = _time.time()
     if resp.status_code != 200:
@@ -103,11 +214,19 @@ def _allanime_episodes(session, show_id):
     return data.get("data", {}).get("show", {}).get("availableEpisodesDetail", {})
 
 def _allanime_sources(session, show_id, ep_str, tt="sub"):
-    data = _gql_src(session, {"showId": show_id, "translationType": tt, "episodeString": ep_str})
-    tp = data.get("data", {}).get("tobeparsed", "") if isinstance(data, dict) else ""
+    query_hash, token, key = _aa_build_token()
+    variables = {"showId": show_id, "translationType": tt, "episodeString": ep_str}
+    data = _gql_src(session, variables, query_hash, token)
+    if isinstance(data, dict):
+        tp = data.get("data", {}).get("tobeparsed", "")
+        if not tp and data.get("errors"):
+            err = data["errors"][0].get("message", "unknown error") if data["errors"] else "unknown error"
+            raise ScraperNetworkError("allanime", f"source query failed: {err}")
+    else:
+        tp = ""
     if not tp:
         raise ScraperNetworkError("allanime", "No tobeparsed data in response")
-    parsed = _decrypt_tobeparsed(tp)
+    parsed = _decrypt_tobeparsed(tp, key)
     if not parsed:
         raise ScraperNoStreamError("allanime", "Failed to decrypt stream sources (source format may have changed)")
     episode = parsed.get("episode")

@@ -2,7 +2,7 @@
 
 > Watch TV shows, movies, and anime from your terminal. Search, pick a title, and it plays in mpv or VLC.
 
-[![Version](https://img.shields.io/badge/version-0.2.24-blue)](#)
+[![Version](https://img.shields.io/badge/version-0.2.25-blue)](#)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](#)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-green)](#)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux%20%7C%20termux-lightgrey)](#)
