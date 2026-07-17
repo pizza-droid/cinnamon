@@ -40,8 +40,10 @@ Release install URL pattern:
 - Single source of truth: `pyproject.toml` `version` AND `cinnamon/__init__.py` `__version__` (keep in sync).
 - Tag releases as `vX.Y.Z` (lightweight tags). `_latest_version()` reads the GitHub Tags API
   (`/repos/pizza-droid/cinnamon/tags`), NOT the Releases API (stuck at old versions).
-- Bump both version fields, `git commit`, `git tag -f vX.Y.Z`, `git push` + `git push -f origin vX.Y.Z`.
-- Update the version badge/URL in `README.md` to match.
+- **Only bump the version when there is a real, publish-worthy change** (new feature, bug fix, behavior
+  change). Do NOT bump for trivial doc edits, README wording, or comment changes — those do not need a
+  new release or tag. When you do bump, update both version fields, `git commit`, `git tag vX.Y.Z`,
+  `git push` + `git push origin vX.Y.Z`, and update the version badge/URL in `README.md` to match.
 
 ## Code style
 
