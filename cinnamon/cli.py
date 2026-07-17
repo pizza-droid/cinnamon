@@ -518,7 +518,7 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
         if not attempt:
             continue
         try:
-            with console.status(f"Resolving via [bold]{attempt_name}[/bold]... (timeout {RESOLVE_TIMEOUT}s)", spinner="dots"):
+            with console.status(f"Resolving via [bold]{attempt_name}[/bold]...", spinner="dots"):
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     info = {"show": show_name, "tv_id": show_id, "season": season_num, "episode": ep_num}
                     if quality:
@@ -626,7 +626,7 @@ def _play_movie(show, scraper, player, quality, info_only, download=False):
 
     console.print()
     try:
-        with console.status(f"Resolving via [bold]{scraper_name}[/bold]... (timeout {RESOLVE_TIMEOUT}s)", spinner="dots"):
+        with console.status(f"Resolving via [bold]{scraper_name}[/bold]...", spinner="dots"):
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 info = {"show": show_name, "movie_id": show_id, "media_type": "movie"}
                 if quality:
