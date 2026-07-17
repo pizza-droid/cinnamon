@@ -724,6 +724,7 @@ class CinnamonGroup(click.Group):
 @click.pass_context
 def cli(ctx, setup):
     """Cinnamon - Stream TV shows, movies & anime from the command line."""
+    _check_for_updates()
     if setup:
         ctx.invoke(setup_cmd)
         return
@@ -786,27 +787,6 @@ def _setup_wizard():
     if api_key and api_key != existing_key:
         cfg["tmdb_api_key"] = api_key
         save_config(cfg)
-
-    # --- Default scraper ---
-    from .scrapers import list_scrapers
-    scrapers = list_scrapers()
-    scraper_names = [s["name"] for s in scrapers]
-    console.print()
-    try:
-        scraper_choice = _select(
-            "Default scraper:",
-            choices=[
-                questionary.Choice(
-                    title=f"{s['name']}  [dim]– {s['description']}[/dim]",
-                    value=s["name"],
-                ) for s in scrapers
-            ],
-            default=cfg.get("default_scraper", "vidsrc"),
-        )
-        if scraper_choice:
-            cfg["default_scraper"] = scraper_choice
-    except Exception:
-        console.print(f"  [{theme['info']}]Scraper:[/] {cfg.get('default_scraper', 'vidsrc')}")
 
     # --- Default player ---
     console.print()
