@@ -2,7 +2,7 @@
 
 > Watch TV shows, movies, and anime from your terminal. Search, pick a title, and it plays in mpv or VLC.
 
-[![Version](https://img.shields.io/badge/version-0.2.21-blue)](#)
+[![Version](https://img.shields.io/badge/version-0.2.22-blue)](#)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](#)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-green)](#)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux%20%7C%20termux-lightgrey)](#)
@@ -51,14 +51,17 @@ cinnamon watch --type movie --query "Inception"
 
 ### Download episodes
 
-Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp):
+Downloading needs [yt-dlp](https://github.com/yt-dlp/yt-dlp). Install it together with cinnamon in one step:
 
-| Platform | Command |
-|---|---|
-| Windows | `scoop install yt-dlp` |
-| macOS | `brew install yt-dlp` |
-| Linux | `pip install yt-dlp` |
-| Termux | `pkg install yt-dlp` |
+```bash
+pip install "cinnamon-cli[download]"
+```
+
+Or install yt-dlp on its own (any platform):
+
+```bash
+pip install yt-dlp
+```
 
 ```bash
 cinnamon search "Breaking Bad" -d -e 1-5
