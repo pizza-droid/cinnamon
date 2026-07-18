@@ -454,17 +454,19 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
         theme = get_theme()
         console.print()
 
+        choices = [
+            questionary.Choice(title="Next episode", value="next"),
+            questionary.Choice(title="Previous episode", value="prev"),
+            questionary.Choice(title="Replay", value="replay"),
+        ]
+        if scraper == "anime":
+            choices.append(questionary.Choice(title="Next season \u2192", value="next_season"))
+        choices += [
+            questionary.Choice(title="Change quality", value="quality"),
+            questionary.Choice(title="Quit", value="quit"),
+        ]
         try:
-            choice = _select(
-                "Options",
-                choices=[
-                    questionary.Choice(title="Next episode", value="next"),
-                    questionary.Choice(title="Previous episode", value="prev"),
-                    questionary.Choice(title="Replay", value="replay"),
-                    questionary.Choice(title="Change quality", value="quality"),
-                    questionary.Choice(title="Quit", value="quit"),
-                ],
-            )
+            choice = _select("Options", choices=choices)
         except Exception:
             return
 
@@ -478,6 +480,29 @@ def _play_with_menu(show, season_num, ep_start, ep_end, ep_name, scraper, player
             ep_name = f"S{season_num:02d}E{ep_num:02d}"
         elif choice == "replay":
             pass
+        elif choice == "next_season":
+            try:
+                from .anilist import find_sequel as _find_sequel
+                sequel = _find_sequel(show.get("name", ""))
+                if not sequel:
+                    _print_error("No next season found on AniList.")
+                    continue
+                from .scrapers.anime import _find_show as _aa_find, _allanime_episodes as _aa_eps
+                import requests as _req
+                _as = _req.Session()
+                _as.headers.update({"User-Agent": "Mozilla/5.0"})
+                _aid = _aa_find(_as, sequel["name"])
+                if not _aid:
+                    _print_error(f"No match for \"{sequel['name']}\" on allanime.")
+                    continue
+                _ed = _aa_eps(_as, _aid)
+                if not _ed:
+                    _print_error("No episode data from allanime.")
+                    continue
+                _run_anime_flow(sequel["name"], _ed, player=player, quality=quality, info_only=info_only, download=download)
+                return
+            except Exception as _e:
+                _print_error("Failed to load next season.", str(_e))
         elif choice == "quality":
             try:
                 quality = _select(
