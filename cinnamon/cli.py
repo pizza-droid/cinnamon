@@ -1697,13 +1697,9 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
     else:
         try:
             ep_choices = [questionary.Choice(title=f"Episode {e}", value=e) for e in sorted(episodes)]
-            if season + 1 in parsed:
-                ep_choices.append(questionary.Choice(title="  Next Season \u2192", value="__next_season__"))
             ep_chosen = _select("Select an episode:", choices=ep_choices)
             if not ep_chosen:
                 return
-            if ep_chosen == "__next_season__":
-                return _run_anime_flow(show_name, episodes_detail, season + 1, ep_str, player, quality, info_only, download, translation)
             ep_start = int(ep_chosen)
         except Exception:
             ep_start = Prompt.ask("Episode", default="1")
