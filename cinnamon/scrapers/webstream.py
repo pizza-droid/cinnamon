@@ -75,7 +75,7 @@ class WebStreamScraper(BaseScraper):
 
             if _time.time() < deadline:
                 try:
-                    result = vidlink_fn(tmdb_id)
+                    result = vidlink_fn(tmdb_id, quality)
                     if result:
                         label = quality.upper() if quality else "Auto"
                         return ScraperResult(
@@ -113,7 +113,7 @@ class WebStreamScraper(BaseScraper):
 
         if _time.time() < deadline:
             try:
-                result = vidlink_fn(tmdb_id, season, episode)
+                result = vidlink_fn(tmdb_id, season, episode, quality)
                 if result:
                     label = quality.upper() if quality else "Auto"
                     return ScraperResult(
@@ -194,7 +194,23 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
     return match[1]
 
 
-def _try_vidlink(tmdb_id, season, episode) -> Optional[str]:
+def _vidlink_quality_url(data, quality=""):
+    """vidlink returns direct mp4 URLs per resolution under stream.qualities."""
+    qualities = data.get("stream", {}).get("qualities", {})
+    if not qualities:
+        raise ScraperNetworkError("vidlink", "No qualities in stream response")
+    if quality and quality not in ("best", "worst"):
+        target = quality.replace("p", "")
+        if target in qualities:
+            return qualities[target]["url"]
+    if quality == "worst":
+        res = min(qualities, key=lambda r: int(r))
+    else:
+        res = max(qualities, key=lambda r: int(r))
+    return qualities[res]["url"]
+
+
+def _try_vidlink(tmdb_id, season, episode, quality="") -> Optional[str]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
@@ -222,11 +238,7 @@ def _try_vidlink(tmdb_id, season, episode) -> Optional[str]:
         data = stream_resp.json()
     except ValueError:
         raise ScraperNetworkError("vidlink", "Non-JSON response from stream API")
-    playlist = data.get("stream", {}).get("playlist")
-    if not playlist:
-        raise ScraperNetworkError("vidlink", "No playlist in stream response")
-
-    return playlist
+    return _vidlink_quality_url(data, quality)
 
 
 def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
@@ -291,7 +303,7 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
     return match[1]
 
 
-def _try_vidlink_movie(tmdb_id) -> Optional[str]:
+def _try_vidlink_movie(tmdb_id, quality="") -> Optional[str]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
@@ -319,8 +331,4 @@ def _try_vidlink_movie(tmdb_id) -> Optional[str]:
         data = stream_resp.json()
     except ValueError:
         raise ScraperNetworkError("vidlink", "Non-JSON response from stream API")
-    playlist = data.get("stream", {}).get("playlist")
-    if not playlist:
-        raise ScraperNetworkError("vidlink", "No playlist in stream response")
-
-    return playlist
+    return _vidlink_quality_url(data, quality)
