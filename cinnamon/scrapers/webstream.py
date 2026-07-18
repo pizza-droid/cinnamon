@@ -219,11 +219,14 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[Tuple[str, boo
 
 def _vidlink_subtitle_url(data):
     captions = data.get("stream", {}).get("captions", [])
+    eng = None
     for cap in captions:
-        lang = cap.get("language", "") or cap.get("lang", "")
+        lang = (cap.get("language", "") or cap.get("lang", "")).strip().lower()
         if lang in ("eng", "en", "english"):
             return cap.get("url")
-    return captions[0]["url"] if captions else None
+        if not eng and lang:
+            eng = cap
+    return eng["url"] if eng else (captions[0]["url"] if captions else None)
 
 
 def _vidlink_quality_url(data, quality=""):
