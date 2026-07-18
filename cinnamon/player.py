@@ -470,7 +470,9 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
     safe = "".join(c if c.isalnum() or c in " .-_()" else "_" for c in title) or "video"
     outtmpl = os.path.join(output_dir, f"{safe}.%(ext)s")
 
-    cmd = [exe, "--no-mtime", "--no-warnings", "-o", outtmpl]
+    cmd = [
+        exe, "--no-mtime", "--no-warnings", "-o", outtmpl,
+    ]
     if referer:
         cmd += ["--referer", referer]
     cmd.append(url)
