@@ -720,7 +720,8 @@ def cli(ctx, setup):
                 border_style="bright_yellow",
             ))
             console.print()
-            if Confirm.ask("No API key found. Run setup?", default=True):
+            console.print("  [dim]Search & watch will use an experimental proxy (no key needed).[/dim]")
+            if Confirm.ask("Add a TMDB API key for better results?", default=False):
                 ctx.invoke(setup_cmd)
                 return
         theme = get_theme()
@@ -766,7 +767,12 @@ def _setup_wizard():
         else:
             api_key = _setup_api_key()
     else:
-        api_key = _setup_api_key()
+        console.print("  No TMDB API key found.")
+        console.print("  [dim]Without it, search & watch use an experimental 2embed proxy (less reliable).[/dim]")
+        if Confirm.ask("  Add a TMDB API key now?", default=True):
+            api_key = _setup_api_key()
+        else:
+            api_key = None
 
     if api_key and api_key != existing_key:
         cfg["tmdb_api_key"] = api_key
@@ -845,7 +851,7 @@ def _setup_api_key():
         webbrowser.open("https://www.themoviedb.org/signup")
 
     console.print()
-    api_key = Prompt.ask("[bold]Paste your TMDB API Key[/bold]")
+    api_key = Prompt.ask("[bold]Paste your TMDB API Key[/bold] [dim](leave empty to skip)[/dim]")
     if not api_key.strip():
         return None
 
