@@ -160,6 +160,141 @@ def _prompt(message, default=None, password=False):
         return default
 
 
+def _pick_episode_keys(items, label_fn, message):
+    """Keyboard-driven episode picker.
+
+    Press a number once to *select* (highlight) that episode; press the same
+    number again to *confirm* and play it. Arrow keys / j / k move the
+    highlight, Enter confirms the highlighted episode, and q / esc abort.
+
+    Multi-digit entry works too: typing "1" then "2" highlights episode 12,
+    and repeating the final digit (or pressing Enter) confirms it.
+    """
+    if not items:
+        return None
+    n = len(items)
+
+    try:
+        from prompt_toolkit import Application
+        from prompt_toolkit.layout import Layout, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.key_binding import KeyBindings
+    except Exception:
+        return None
+
+    t = get_theme()
+    accent = _q_hex(t.get("accent", "orange1"))
+    dim = _q_hex(t.get("dim", "grey50"))
+
+    class _State:
+        sel = 0
+        buffer = ""
+        last_key = None
+        last_press = 0.0
+        result = None
+        abort = False
+
+    state = _State()
+    app_ref = [None]
+
+    def _render():
+        lines = [(f"bold fg:{accent}", f"{message}\n")]
+        lines.append((f"fg:{dim}", "  press a number to select · press it again to play · ↑↓/jk move · enter play · q quit\n\n"))
+        start = max(0, min(state.sel - 7, n - 15))
+        end = min(n, start + 15)
+        for i in range(start, end):
+            ep = items[i]
+            label = label_fn(ep)
+            num = f"{i + 1:>3}"
+            if i == state.sel:
+                if state.buffer:
+                    lines.append((f"bold fg:{accent}", f" {_POINTER} {num}  {label}\n"))
+                else:
+                    lines.append((f"bold fg:{accent}", f" {_POINTER} {num}  {label}\n"))
+            else:
+                lines.append((f"fg:{dim}", f"    {num}  {label}\n"))
+        return lines
+
+    control = FormattedTextControl(_render)
+
+    def _confirm():
+        state.result = items[state.sel]
+        if app_ref[0] is not None:
+            app_ref[0].exit()
+
+    def _abort():
+        state.abort = True
+        if app_ref[0] is not None:
+            app_ref[0].exit()
+
+    def _press_digit(d):
+        now = _time.time()
+        if state.last_key is None or (now - state.last_press) > 1.2:
+            state.buffer = str(d)
+        else:
+            state.buffer += str(d)
+        state.last_press = now
+        last_key = state.last_key
+        state.last_key = d
+        try:
+            idx = int(state.buffer) - 1
+        except ValueError:
+            idx = -1
+        if 0 <= idx < n:
+            state.sel = idx
+        # Pressing the same digit twice in a row confirms the highlight.
+        if d == last_key:
+            _confirm()
+            return
+        if app_ref[0] is not None:
+            app_ref[0].invalidate()
+
+    kb = KeyBindings()
+
+    for d in range(10):
+        kb.add(str(d))(lambda event, d=d: _press_digit(d))
+
+    @kb.add("up")
+    @kb.add("k")
+    def _up(event):
+        state.buffer = ""
+        state.last_key = None
+        state.sel = (state.sel - 1) % n
+        event.app.invalidate()
+
+    @kb.add("down")
+    @kb.add("j")
+    def _down(event):
+        state.buffer = ""
+        state.last_key = None
+        state.sel = (state.sel + 1) % n
+        event.app.invalidate()
+
+    @kb.add("enter")
+    def _enter(event):
+        _confirm()
+
+    @kb.add("q")
+    @kb.add("escape")
+    def _quit(event):
+        _abort()
+
+    app = Application(
+        layout=Layout(Window(control, always_scroll=True)),
+        key_bindings=kb,
+        mouse_support=False,
+        full_screen=False,
+    )
+    app_ref[0] = app
+    try:
+        app.run()
+    except Exception:
+        return None
+    if state.abort:
+        return None
+    return state.result
+
+
 _UPDATE_CHECK_CACHE = 86400  # 24 hours
 
 
@@ -1153,15 +1288,15 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
         return
 
     try:
-        ep_choices = []
-        for ep in episodes:
+        def _ep_label(ep):
             ep_num = ep.get("episode_number", "?")
             ep_title = ep.get("name", f"Episode {ep_num}")
-            label = f"E{ep_num:02d}  {ep_title}" if isinstance(ep_num, int) else f"{ep_num}  {ep_title}"
-            ep_choices.append(questionary.Choice(title=label, value=ep))
-        ep_chosen = _select(
-            f"Season {season_num} - Select an episode:",
-            choices=ep_choices,
+            return f"E{ep_num:02d}  {ep_title}" if isinstance(ep_num, int) else f"{ep_num}  {ep_title}"
+
+        ep_chosen = _pick_episode_keys(
+            episodes,
+            _ep_label,
+            f"Season {season_num} — select an episode",
         )
         if not ep_chosen:
             return
@@ -1680,9 +1815,13 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
             ep_end = max_ep
     else:
         try:
-            ep_choices = [questionary.Choice(title=f"Episode {e}", value=e) for e in sorted(episodes)]
-            ep_chosen = _select("Select an episode:", choices=ep_choices)
-            if not ep_chosen:
+            sorted_eps = sorted(episodes)
+            ep_chosen = _pick_episode_keys(
+                sorted_eps,
+                lambda e: f"Episode {e}",
+                "Select an episode",
+            )
+            if ep_chosen is None:
                 return
             ep_start = int(ep_chosen)
         except Exception:
