@@ -632,7 +632,7 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
             return None  # magnets: can't wait for process
         else:
             console.print(f"  [{theme['info']}]Opening in {player_choice.upper()}...[/{theme['info']}]")
-            return play(result.m3u8_url, title=result.title, player=player_choice, season=season_num, episode=ep_num, referer=result.referer)
+            return play(result.m3u8_url, title=result.title, player=player_choice, season=season_num, episode=ep_num, referer=result.referer, subtitle_url=result.subtitle_url)
     except PlayerNotFoundError as e:
         _print_error(str(e))
         return None

@@ -1,6 +1,6 @@
 import re
 import time as _time
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 
@@ -25,6 +25,9 @@ def _verify_playlist(session, master_url, source):
     if resp.status_code != 200 or not resp.text.lstrip().startswith("#EXTM3U"):
         raise ScraperNoStreamError(source, f"Master playlist unavailable (status {resp.status_code}).")
     return resp
+
+
+
 
 
 
@@ -53,65 +56,97 @@ class WebStreamScraper(BaseScraper):
 
         if media_type == "movie":
             vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
+            vixsrc_url = None
+            vixsrc_has_subs = False
             if _time.time() < deadline:
                 try:
-                    result = _try_vixsrc_movie(tmdb_id, quality)
-                    if result:
-                        label = quality.upper() if quality else "Auto"
-                        return ScraperResult(
-                            title=f"{show} ({label})",
-                            m3u8_url=result,
-                            referer=vixsrc_ref,
-                            user_agent=UA,
-                        )
+                    res = _try_vixsrc_movie(tmdb_id, quality)
+                    if res:
+                        vixsrc_url, vixsrc_has_subs = res
                 except ScraperNetworkError:
                     pass
+
+            if vixsrc_url and vixsrc_has_subs:
+                label = quality.upper() if quality else "Auto"
+                return ScraperResult(
+                    title=f"{show} ({label})",
+                    m3u8_url=vixsrc_url,
+                    referer=vixsrc_ref,
+                    user_agent=UA,
+                )
 
             if _time.time() < deadline:
                 try:
                     result = _try_vidlink_movie(tmdb_id, quality)
                     if result:
+                        url, sub_url = result
                         label = quality.upper() if quality else "Auto"
                         return ScraperResult(
                             title=f"{show} ({label})",
-                            m3u8_url=result,
+                            m3u8_url=url,
                             referer="https://vidlink.pro/",
                             user_agent=UA,
+                            subtitle_url=sub_url,
                         )
                 except ScraperNetworkError:
                     pass
+
+            if vixsrc_url:
+                label = quality.upper() if quality else "Auto"
+                return ScraperResult(
+                    title=f"{show} ({label})",
+                    m3u8_url=vixsrc_url,
+                    referer=vixsrc_ref,
+                    user_agent=UA,
+                )
 
             raise ScraperNoStreamError(self.name, f"No HTTP stream found for {show}")
 
         # TV
         vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
+        vixsrc_url = None
+        vixsrc_has_subs = False
         if _time.time() < deadline:
             try:
-                result = _try_vixsrc(tmdb_id, season, episode, quality)
-                if result:
-                    label = quality.upper() if quality else "Auto"
-                    return ScraperResult(
-                        title=f"{show} S{season:02d}E{episode:02d} ({label})",
-                        m3u8_url=result,
-                        referer=vixsrc_ref,
-                        user_agent=UA,
-                    )
+                res = _try_vixsrc(tmdb_id, season, episode, quality)
+                if res:
+                    vixsrc_url, vixsrc_has_subs = res
             except ScraperNetworkError:
                 pass
+
+        if vixsrc_url and vixsrc_has_subs:
+            label = quality.upper() if quality else "Auto"
+            return ScraperResult(
+                title=f"{show} S{season:02d}E{episode:02d} ({label})",
+                m3u8_url=vixsrc_url,
+                referer=vixsrc_ref,
+                user_agent=UA,
+            )
 
         if _time.time() < deadline:
             try:
                 result = _try_vidlink(tmdb_id, season, episode, quality)
                 if result:
+                    url, sub_url = result
                     label = quality.upper() if quality else "Auto"
                     return ScraperResult(
                         title=f"{show} S{season:02d}E{episode:02d} ({label})",
-                        m3u8_url=result,
+                        m3u8_url=url,
                         referer="https://vidlink.pro/",
                         user_agent=UA,
+                        subtitle_url=sub_url,
                     )
             except ScraperNetworkError:
                 pass
+
+        if vixsrc_url:
+            label = quality.upper() if quality else "Auto"
+            return ScraperResult(
+                title=f"{show} S{season:02d}E{episode:02d} ({label})",
+                m3u8_url=vixsrc_url,
+                referer=vixsrc_ref,
+                user_agent=UA,
+            )
 
         raise ScraperNoStreamError(self.name,
             f"No HTTP stream found for {show} S{season:02d}E{episode:02d}")
@@ -119,7 +154,7 @@ class WebStreamScraper(BaseScraper):
 
 _QUALITY_RENDITIONS = {"480p": "480p", "720p": "720p", "1080p": "1080p", "best": "", "worst": "worst"}
 
-def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
+def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[Tuple[str, bool]]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
@@ -156,19 +191,19 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
     sep = "&" if "?" in playlist.group(1) else "?"
     master_url = f'{playlist.group(1)}{sep}token={token.group(1)}&expires={expires.group(1)}&h=1&lang=en'
 
+    master_resp = _verify_playlist(session, master_url, "vixsrc")
+    has_subs = "#EXT-X-MEDIA:TYPE=SUBTITLES" in master_resp.text
+
     if not quality:
-        _verify_playlist(session, master_url, "vixsrc")
-        return master_url
+        return (master_url, has_subs)
 
     # Parse master playlist and filter by quality
-    master_resp = _verify_playlist(session, master_url, "vixsrc")
-
     variants = re.findall(
         r'#EXT-X-STREAM-INF:.*?RESOLUTION=\d+x(\d+).*?\n(https?://\S+)',
         master_resp.text,
     )
     if not variants:
-        return master_url
+        return (master_url, has_subs)
 
     target = quality.replace("p", "")
     if quality == "best":
@@ -179,7 +214,16 @@ def _try_vixsrc(tmdb_id, season, episode, quality="") -> Optional[str]:
         matches = [v for v in variants if v[0] == target]
         match = matches[0] if matches else max(variants, key=lambda v: int(v[0]))
 
-    return match[1]
+    return (match[1], has_subs)
+
+
+def _vidlink_subtitle_url(data):
+    captions = data.get("stream", {}).get("captions", [])
+    for cap in captions:
+        lang = cap.get("language", "") or cap.get("lang", "")
+        if lang in ("eng", "en", "english"):
+            return cap.get("url")
+    return captions[0]["url"] if captions else None
 
 
 def _vidlink_quality_url(data, quality=""):
@@ -198,7 +242,7 @@ def _vidlink_quality_url(data, quality=""):
     return qualities[res]["url"]
 
 
-def _try_vidlink(tmdb_id, season, episode, quality="") -> Optional[str]:
+def _try_vidlink(tmdb_id, season, episode, quality="") -> Optional[tuple[str, Optional[str]]]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
@@ -226,10 +270,13 @@ def _try_vidlink(tmdb_id, season, episode, quality="") -> Optional[str]:
         data = stream_resp.json()
     except ValueError:
         raise ScraperNetworkError("vidlink", "Non-JSON response from stream API")
-    return _vidlink_quality_url(data, quality)
+
+    url = _vidlink_quality_url(data, quality)
+    sub_url = _vidlink_subtitle_url(data)
+    return (url, sub_url)
 
 
-def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
+def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[Tuple[str, bool]]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
@@ -266,18 +313,18 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
     sep = "&" if "?" in playlist.group(1) else "?"
     master_url = f'{playlist.group(1)}{sep}token={token.group(1)}&expires={expires.group(1)}&h=1&lang=en'
 
-    if not quality:
-        _verify_playlist(session, master_url, "vixsrc")
-        return master_url
-
     master_resp = _verify_playlist(session, master_url, "vixsrc")
+    has_subs = "#EXT-X-MEDIA:TYPE=SUBTITLES" in master_resp.text
+
+    if not quality:
+        return (master_url, has_subs)
 
     variants = re.findall(
         r'#EXT-X-STREAM-INF:.*?RESOLUTION=\d+x(\d+).*?\n(https?://\S+)',
         master_resp.text,
     )
     if not variants:
-        return master_url
+        return (master_url, has_subs)
 
     target = quality.replace("p", "")
     if quality == "best":
@@ -288,10 +335,10 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[str]:
         matches = [v for v in variants if v[0] == target]
         match = matches[0] if matches else max(variants, key=lambda v: int(v[0]))
 
-    return match[1]
+    return (match[1], has_subs)
 
 
-def _try_vidlink_movie(tmdb_id, quality="") -> Optional[str]:
+def _try_vidlink_movie(tmdb_id, quality="") -> Optional[Tuple[str, Optional[str]]]:
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
@@ -319,4 +366,7 @@ def _try_vidlink_movie(tmdb_id, quality="") -> Optional[str]:
         data = stream_resp.json()
     except ValueError:
         raise ScraperNetworkError("vidlink", "Non-JSON response from stream API")
-    return _vidlink_quality_url(data, quality)
+
+    url = _vidlink_quality_url(data, quality)
+    sub_url = _vidlink_subtitle_url(data)
+    return (url, sub_url)

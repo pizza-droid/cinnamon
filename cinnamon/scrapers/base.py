@@ -10,6 +10,7 @@ class ScraperResult:
     referer: Optional[str] = None
     user_agent: Optional[str] = None
     headers: dict = field(default_factory=dict)
+    subtitle_url: Optional[str] = None
 
     def __post_init__(self):
         if not self.title:

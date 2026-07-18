@@ -318,7 +318,7 @@ def play_vlc(url, title="", referer=None):
     return _launch("VLC", cmd)
 
 
-def play_mpv(url, title="", referer=None):
+def play_mpv(url, title="", referer=None, subtitle_url=None):
     exe = _mpv_path()
     if not exe:
         raise PlayerNotFoundError("mpv")
@@ -329,6 +329,8 @@ def play_mpv(url, title="", referer=None):
            "--network-timeout=20", "--keep-open=no"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
+    if subtitle_url:
+        cmd += [f"--sub-file={subtitle_url}"]
     cmd.append(url)
     return _launch("mpv", cmd)
 
@@ -545,7 +547,7 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
         raise
 
 
-def play(url, title="", player="auto", season=None, episode=None, referer=None):
+def play(url, title="", player="auto", season=None, episode=None, referer=None, subtitle_url=None):
     if url.startswith("magnet:"):
         return _play_magnet(url, title, player, season, episode)
     if player == "auto":
@@ -553,7 +555,7 @@ def play(url, title="", player="auto", season=None, episode=None, referer=None):
         vlc = _vlc_path()
         if mpv:
             try:
-                return play_mpv(url, title, referer)
+                return play_mpv(url, title, referer, subtitle_url)
             except PlayerLaunchError:
                 if not vlc:
                     raise
@@ -563,5 +565,5 @@ def play(url, title="", player="auto", season=None, episode=None, referer=None):
     if player == "vlc":
         return play_vlc(url, title, referer)
     if player == "mpv":
-        return play_mpv(url, title, referer)
+        return play_mpv(url, title, referer, subtitle_url)
     raise ValueError(f"Unknown player: {player}. Use vlc, mpv, or auto.")
