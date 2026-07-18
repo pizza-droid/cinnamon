@@ -1662,7 +1662,11 @@ def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player
         _print_error(f"No episodes for season {season}.")
         return
 
-    tt_keys = list(season_data.keys())
+    tt_keys = [k for k in season_data if season_data[k]]
+    if not tt_keys:
+        _print_error(f"No episodes available for season {season}.")
+        return
+
     if translation and translation in tt_keys:
         tt = translation
     elif "sub" in tt_keys and len(tt_keys) > 1:
