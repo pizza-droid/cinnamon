@@ -42,6 +42,9 @@ class WebStreamScraper(BaseScraper):
         season = episode_info.get("season", 1)
         episode = episode_info.get("episode", 1)
         quality = episode_info.get("quality", "")
+        # vidlink uses a different CDN that is not throttled like vixsrc's
+        # segment edge, so prefer it when downloading to avoid 503 stalls.
+        prefer_vidlink = bool(episode_info.get("download"))
 
         if not tmdb_id:
             raise ScraperParseError(self.name, "Missing tmdb_id/movie_id/tv_id in episode_info")
@@ -49,28 +52,34 @@ class WebStreamScraper(BaseScraper):
         deadline = _time.time() + 30
 
         if media_type == "movie":
-            # Try vixsrc.to first
+            if prefer_vidlink:
+                vixsrc_fn, vidlink_fn = _try_vidlink_movie, _try_vixsrc_movie
+                vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
+            else:
+                vixsrc_fn, vidlink_fn = _try_vixsrc_movie, _try_vidlink_movie
+                vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
+
             if _time.time() < deadline:
                 try:
-                    result = _try_vixsrc_movie(tmdb_id, quality)
+                    result = vixsrc_fn(tmdb_id, quality)
                     if result:
-                        label = quality.upper() if quality else "vixsrc"
+                        label = quality.upper() if quality else "Auto"
                         return ScraperResult(
                             title=f"{show} ({label})",
                             m3u8_url=result,
-                            referer=f"https://vixsrc.to/embed/movie/{tmdb_id}",
+                            referer=vixsrc_ref,
                             user_agent=UA,
                         )
                 except ScraperNetworkError:
                     pass
 
-            # Try vidlink.pro as fallback
             if _time.time() < deadline:
                 try:
-                    result = _try_vidlink_movie(tmdb_id)
+                    result = vidlink_fn(tmdb_id)
                     if result:
+                        label = quality.upper() if quality else "Auto"
                         return ScraperResult(
-                            title=f"{show} (vidlink)",
+                            title=f"{show} ({label})",
                             m3u8_url=result,
                             referer="https://vidlink.pro/",
                             user_agent=UA,
@@ -81,15 +90,22 @@ class WebStreamScraper(BaseScraper):
             raise ScraperNoStreamError(self.name, f"No HTTP stream found for {show}")
 
         # TV
+        if prefer_vidlink:
+            vixsrc_fn, vidlink_fn = _try_vidlink, _try_vixsrc
+            vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
+        else:
+            vixsrc_fn, vidlink_fn = _try_vixsrc, _try_vidlink
+            vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
+
         if _time.time() < deadline:
             try:
-                result = _try_vixsrc(tmdb_id, season, episode, quality)
+                result = vixsrc_fn(tmdb_id, season, episode, quality)
                 if result:
-                    label = quality.upper() if quality else "vixsrc"
+                    label = quality.upper() if quality else "Auto"
                     return ScraperResult(
                         title=f"{show} S{season:02d}E{episode:02d} ({label})",
                         m3u8_url=result,
-                        referer=f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}",
+                        referer=vixsrc_ref,
                         user_agent=UA,
                     )
             except ScraperNetworkError:
@@ -97,10 +113,11 @@ class WebStreamScraper(BaseScraper):
 
         if _time.time() < deadline:
             try:
-                result = _try_vidlink(tmdb_id, season, episode)
+                result = vidlink_fn(tmdb_id, season, episode)
                 if result:
+                    label = quality.upper() if quality else "Auto"
                     return ScraperResult(
-                        title=f"{show} S{season:02d}E{episode:02d} (vidlink)",
+                        title=f"{show} S{season:02d}E{episode:02d} ({label})",
                         m3u8_url=result,
                         referer="https://vidlink.pro/",
                         user_agent=UA,

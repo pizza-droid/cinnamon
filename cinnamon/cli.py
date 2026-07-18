@@ -531,6 +531,8 @@ def _resolve_and_play(show, season_num, ep_num, ep_name, scraper, player, qualit
                         info["quality"] = quality
                     if translation:
                         info["translation"] = translation
+                    if download:
+                        info["download"] = True
                     future = pool.submit(attempt.resolve, info)
                     result = future.result(timeout=RESOLVE_TIMEOUT)
             if result:

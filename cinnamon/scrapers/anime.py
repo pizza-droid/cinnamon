@@ -352,7 +352,7 @@ class AnimeScraper(BaseScraper):
             try:
                 direct = _extract_mp4upload(session, url)
                 if direct:
-                    label = quality.upper() if quality else "Mp4upload"
+                    label = "Dub" if translation == "dub" else "Sub"
                     return ScraperResult(
                         title=f"{show_name} E{episode:02d} ({label})",
                         m3u8_url=direct,
