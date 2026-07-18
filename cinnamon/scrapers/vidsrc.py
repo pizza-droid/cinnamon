@@ -84,7 +84,7 @@ async def _async_resolve(embed_url: str, timeout: int = 30) -> Optional[str]:
     except ImportError:
         raise ScraperNetworkError(
             "vidsrc",
-            "Playwright is required for the vidsrc scraper. Install it with: pip install playwright && python -m playwright install chromium"
+            "Playwright is required for the vidsrc scraper. Install it with: python -m pip install playwright && python -m playwright install chromium"
         )
 
     found_urls = []

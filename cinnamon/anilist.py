@@ -1,5 +1,7 @@
 import requests
 
+from .errors import CinnamonError
+
 API = "https://graphql.anilist.co"
 UA = "cinnamon/0.1.0"
 
@@ -22,12 +24,19 @@ query ($search: String, $page: Int) {
 
 
 def search_anime(query):
-    resp = requests.post(
-        API,
-        json={"query": _SEARCH_QUERY, "variables": {"search": query, "page": 1}},
-        timeout=15,
-        headers={"User-Agent": UA, "Content-Type": "application/json", "Accept": "application/json"},
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("data", {}).get("Page", {}).get("media", [])
+    try:
+        resp = requests.post(
+            API,
+            json={"query": _SEARCH_QUERY, "variables": {"search": query, "page": 1}},
+            timeout=15,
+            headers={"User-Agent": UA, "Content-Type": "application/json", "Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("data", {}).get("Page", {}).get("media", [])
+    except requests.ConnectionError:
+        raise CinnamonError("Could not reach AniList. Check your internet connection.")
+    except requests.Timeout:
+        raise CinnamonError("AniList request timed out.")
+    except requests.HTTPError as e:
+        raise CinnamonError(f"AniList returned an error (HTTP {e.response.status_code}).")

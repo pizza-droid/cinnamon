@@ -27,6 +27,7 @@ from .config import (
 from .errors import (
     CinnamonError,
     MissingAPIKey,
+    PlayerError,
     PlayerLaunchError,
     PlayerNotFoundError,
     ScraperError,
@@ -252,7 +253,7 @@ def _get_tmdb():
         raise SystemExit(1)
 
 
-def _handle_tmdb_error(fn):
+def _handle_errors(fn):
     @wraps(fn)
     def wrapper(*a, **kw):
         try:
@@ -267,8 +268,12 @@ def _handle_tmdb_error(fn):
             _print_error(str(e))
         except TMDBError as e:
             _print_error(str(e))
+        except (ScraperError, PlayerError) as e:
+            _print_error(str(e))
         except MissingAPIKey:
             _get_tmdb()
+        except Exception as e:
+            _print_error("Something went wrong.", str(e)[:500])
 
     return wrapper
 
@@ -880,7 +885,7 @@ def _theme_preview(name):
 @click.option("-q", "--quality", help="Video quality: 480p, 720p, 1080p, best, worst")
 @click.option("-d", "--download", is_flag=True, help="Download instead of streaming")
 @click.option("--info-only", is_flag=True, help="Show the m3u8 URL without playing")
-@_handle_tmdb_error
+@_handle_errors
 def search(query, media_type, season, ep_str, scraper, player, quality, download, info_only):
     """Search for a show or movie, pick one, and watch it."""
     _check_for_updates()
@@ -965,7 +970,7 @@ def search(query, media_type, season, ep_str, scraper, player, quality, download
 @click.option("-d", "--download", is_flag=True, help="Download instead of streaming")
 @click.option("--info-only", is_flag=True, help="Show the m3u8 URL without playing")
 @click.option("-q", "--quality", help="Video quality: 480p, 720p, 1080p, best, worst")
-@_handle_tmdb_error
+@_handle_errors
 def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download, info_only, quality):
     """Browse episodes interactively and play one."""
     _check_for_updates()
@@ -1185,6 +1190,7 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
 @click.argument("url")
 @click.option("--player", help="Player: vlc, mpv, or auto")
 @click.option("--title", default="", help="Media title")
+@_handle_errors
 def play_url(url, player, title):
     """Play a direct m3u8 URL in VLC or mpv."""
     config = load_config()
@@ -1205,7 +1211,7 @@ def play_url(url, player, title):
 
 
 @cli.command()
-@_handle_tmdb_error
+@_handle_errors
 def resume():
     """List interrupted downloads and resume one."""
     from .downloads import get, list_all, update as _track_update
@@ -1474,6 +1480,7 @@ def config_scraper_show(name):
 
 
 @cli.command()
+@_handle_errors
 def scrapers():
     """List available scrapers."""
     all_scrapers = list_scrapers()
@@ -1507,6 +1514,7 @@ def scrapers():
 
 @cli.command()
 @click.argument("name")
+@_handle_errors
 def install(name):
     """Install an optional scraper (vidsrc, torrentio)."""
     from .scrapers import _OPTIONAL_SCRAPERS, install_optional
@@ -1533,6 +1541,7 @@ def install(name):
 @click.option("--info-only", is_flag=True, help="Show the stream URL without playing")
 @click.option("--sub", "prefer_sub", is_flag=True, help="Prefer subtitled audio")
 @click.option("--dub", "prefer_dub", is_flag=True, help="Prefer dubbed audio")
+@_handle_errors
 def anime(query, season, ep_str, download, player, quality, info_only, prefer_sub, prefer_dub):
     """Search anime via AniList (no API key needed) and stream from allanime."""
     _check_for_updates()
@@ -1765,6 +1774,7 @@ def update():
 @cli.command()
 @click.argument("query", nargs=-1, required=False)
 @click.option("--clear", is_flag=True, help="Clear all watch history")
+@_handle_errors
 def history(query, clear):
     """Show watch history and resume from last episode."""
     from .history import clear_history, get_history, list_history

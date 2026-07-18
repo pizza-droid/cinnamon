@@ -142,7 +142,7 @@ def ytdlp_install_hint():
         return "brew install yt-dlp"
     if _platform_os() == "termux":
         return "pkg install yt-dlp"
-    return "pip install yt-dlp"
+    return "python -m pip install yt-dlp"
 
 
 def _termux_ensure_mpv_conf():

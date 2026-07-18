@@ -73,7 +73,7 @@ def _install_fakes():
     c.list_scrapers = lambda: [{"name": "webstream", "description": "fake", "builtin": True}]
     c.play = lambda *a, **k: _Proc()
     c.download_video = lambda *a, **k: None
-    c.ytdlp_install_hint = lambda: "pip install yt-dlp"
+    c.ytdlp_install_hint = lambda: "python -m pip install yt-dlp"
 
 
 class _Proc:
