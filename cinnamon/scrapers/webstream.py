@@ -57,37 +57,29 @@ class WebStreamScraper(BaseScraper):
         if media_type == "movie":
             vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
             vixsrc_url = None
-            vixsrc_has_subs = False
             if _time.time() < deadline:
                 try:
                     res = _try_vixsrc_movie(tmdb_id, quality)
                     if res:
-                        vixsrc_url, vixsrc_has_subs = res
+                        vixsrc_url, _ = res
                 except ScraperNetworkError:
                     pass
 
-            if vixsrc_url and vixsrc_has_subs:
-                label = quality.upper() if quality else "Auto"
-                return ScraperResult(
-                    title=f"{show} ({label})",
-                    m3u8_url=vixsrc_url,
-                    referer=vixsrc_ref,
-                    user_agent=UA,
-                )
-
+            sub_url = None
             if _time.time() < deadline:
                 try:
                     result = _try_vidlink_movie(tmdb_id, quality)
                     if result:
                         url, sub_url = result
-                        label = quality.upper() if quality else "Auto"
-                        return ScraperResult(
-                            title=f"{show} ({label})",
-                            m3u8_url=url,
-                            referer="https://vidlink.pro/",
-                            user_agent=UA,
-                            subtitle_url=sub_url,
-                        )
+                        if not vixsrc_url:
+                            label = quality.upper() if quality else "Auto"
+                            return ScraperResult(
+                                title=f"{show} ({label})",
+                                m3u8_url=url,
+                                referer="https://vidlink.pro/",
+                                user_agent=UA,
+                                subtitle_url=sub_url,
+                            )
                 except ScraperNetworkError:
                     pass
 
@@ -98,6 +90,7 @@ class WebStreamScraper(BaseScraper):
                     m3u8_url=vixsrc_url,
                     referer=vixsrc_ref,
                     user_agent=UA,
+                    subtitle_url=sub_url,
                 )
 
             raise ScraperNoStreamError(self.name, f"No HTTP stream found for {show}")
@@ -105,37 +98,29 @@ class WebStreamScraper(BaseScraper):
         # TV
         vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
         vixsrc_url = None
-        vixsrc_has_subs = False
         if _time.time() < deadline:
             try:
                 res = _try_vixsrc(tmdb_id, season, episode, quality)
                 if res:
-                    vixsrc_url, vixsrc_has_subs = res
+                    vixsrc_url, _ = res
             except ScraperNetworkError:
                 pass
 
-        if vixsrc_url and vixsrc_has_subs:
-            label = quality.upper() if quality else "Auto"
-            return ScraperResult(
-                title=f"{show} S{season:02d}E{episode:02d} ({label})",
-                m3u8_url=vixsrc_url,
-                referer=vixsrc_ref,
-                user_agent=UA,
-            )
-
+        sub_url = None
         if _time.time() < deadline:
             try:
                 result = _try_vidlink(tmdb_id, season, episode, quality)
                 if result:
                     url, sub_url = result
-                    label = quality.upper() if quality else "Auto"
-                    return ScraperResult(
-                        title=f"{show} S{season:02d}E{episode:02d} ({label})",
-                        m3u8_url=url,
-                        referer="https://vidlink.pro/",
-                        user_agent=UA,
-                        subtitle_url=sub_url,
-                    )
+                    if not vixsrc_url:
+                        label = quality.upper() if quality else "Auto"
+                        return ScraperResult(
+                            title=f"{show} S{season:02d}E{episode:02d} ({label})",
+                            m3u8_url=url,
+                            referer="https://vidlink.pro/",
+                            user_agent=UA,
+                            subtitle_url=sub_url,
+                        )
             except ScraperNetworkError:
                 pass
 
@@ -146,6 +131,7 @@ class WebStreamScraper(BaseScraper):
                 m3u8_url=vixsrc_url,
                 referer=vixsrc_ref,
                 user_agent=UA,
+                subtitle_url=sub_url,
             )
 
         raise ScraperNoStreamError(self.name,

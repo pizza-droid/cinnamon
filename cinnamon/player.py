@@ -330,7 +330,7 @@ def play_mpv(url, title="", referer=None, subtitle_url=None):
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
     if subtitle_url:
-        cmd += [f"--sub-file={subtitle_url}"]
+        cmd += ["--sid=no", f"--sub-file={subtitle_url}"]
     cmd.append(url)
     return _launch("mpv", cmd)
 
