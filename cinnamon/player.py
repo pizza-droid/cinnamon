@@ -332,8 +332,9 @@ def play_mpv(url, title="", referer=None, subtitle_url=None):
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
     if subtitle_url:
+        sub_path = _download_subtitle(subtitle_url)
         script_path = _write_auto_sub_script()
-        cmd += [f"--script={script_path}", f"--sub-file={subtitle_url}"]
+        cmd += ["--script", script_path, "--sub-file", sub_path]
     cmd.append(url)
     return _launch("mpv", cmd)
 
@@ -346,14 +347,39 @@ local function select_external_sub()
         local is_external = mp.get_property(string.format("track-list/%d/external", i))
         if track_type == "sub" and is_external == "yes" then
             mp.set_property_number("sid", i + 1)
-            break
+            return true
         end
     end
+    return false
 end
-mp.register_event("file-loaded", select_external_sub)
+
+local function on_file_loaded()
+    if not select_external_sub() then
+        mp.add_timeout(0.5, select_external_sub)
+    end
+end
+
+mp.register_event("file-loaded", on_file_loaded)
+mp.register_event("tracks-changed", select_external_sub)
 """
 
 _AUTO_SUB_SCRIPTS = set()
+_SUBTITLE_FILES = set()
+
+
+def _download_subtitle(url):
+    import requests
+    fd, path = tempfile.mkstemp(suffix=".srt", prefix="cinnamon_sub_")
+    r = requests.get(url, timeout=15, headers={"User-Agent": DEFAULT_UA})
+    r.raise_for_status()
+    content = r.text
+    # Strip BOM if present
+    if content.startswith("\ufeff"):
+        content = content[1:]
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
+    _SUBTITLE_FILES.add(path)
+    return path
 
 
 def _write_auto_sub_script():
@@ -364,16 +390,22 @@ def _write_auto_sub_script():
     return path
 
 
-def _cleanup_auto_sub_scripts():
+def _cleanup_temp_files():
     for path in list(_AUTO_SUB_SCRIPTS):
         try:
             os.unlink(path)
         except OSError:
             pass
         _AUTO_SUB_SCRIPTS.discard(path)
+    for path in list(_SUBTITLE_FILES):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        _SUBTITLE_FILES.discard(path)
 
 
-atexit.register(_cleanup_auto_sub_scripts)
+atexit.register(_cleanup_temp_files)
 
 
 def _streamer_path():
