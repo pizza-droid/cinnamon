@@ -101,6 +101,7 @@ class WebStreamScraper(BaseScraper):
         # TV
         vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
         vixsrc_url = None
+        vixsrc_has_subs = False
         vidlink_url = None
         sub_url = None
 
@@ -108,11 +109,11 @@ class WebStreamScraper(BaseScraper):
             try:
                 res = _try_vixsrc(tmdb_id, season, episode, quality)
                 if res:
-                    vixsrc_url, _ = res
+                    vixsrc_url, vixsrc_has_subs = res
             except ScraperNetworkError:
                 pass
 
-        if _time.time() < deadline:
+        if not vixsrc_has_subs and _time.time() < deadline:
             try:
                 result = _try_vidlink(tmdb_id, season, episode, quality)
                 if result:
