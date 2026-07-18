@@ -1585,7 +1585,7 @@ def anime(query, season, ep_str, download, player, quality, info_only, prefer_su
         return
 
     def _title(m):
-        return m.get("title", {}).get("romaji") or m.get("title", {}).get("english") or m.get("title", {}).get("native", "?")
+        return m.get("title", {}).get("english") or m.get("title", {}).get("romaji") or m.get("title", {}).get("native", "?")
     def _year(m):
         sd = m.get("startDate") or {}
         return str(sd.get("year", "")) if sd.get("year") else ""
