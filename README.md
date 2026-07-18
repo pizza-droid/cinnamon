@@ -119,7 +119,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 |---|---|
 | `webstream` | TV shows & movies from vixsrc.to and vidlink.pro (HLS) |
 | `anime` | Anime from allanime.day via mp4upload |
-| `xpass` | TV shows & movies via 2embed proxy (play.xpass.top) |
+
 
 **Optional (install with `cinnamon install <name>`):**
 
