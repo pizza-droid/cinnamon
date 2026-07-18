@@ -299,7 +299,19 @@ def _find_show(session, name):
         rn = r.get("name", "").lower().strip()
         if q in rn or rn in q:
             return r["_id"]
-    return results[0]["_id"]
+
+    q_words = frozenset(w for w in re.split(r"[^\w]+", q) if len(w) > 2)
+    scored = []
+    for r in results:
+        rn = r.get("name", "").lower().strip()
+        r_words = set(re.split(r"[^\w]+", rn))
+        overlap = len(q_words & r_words)
+        all_match = q_words <= r_words
+        has_suffix = bool(re.search(r"\b(?:part|season|special|cour|ova)\s*\d*\b", rn))
+        name_len = len(rn)
+        scored.append((overlap, all_match, 0 if has_suffix else 1, name_len, r["_id"]))
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
+    return scored[0][4]
 
 def _extract_mp4upload(session, embed_url):
     resp = session.get(embed_url, timeout=TIMEOUT)
