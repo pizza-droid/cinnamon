@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cinnamon-cli"
-version = "0.2.34"
+version = "0.2.35"
 description = "CLI to search TV shows, movies & anime via TMDB/AniList, scrape m3u8 links, and play in VLC/mpv"
 license = { text = "CC BY-NC 4.0" }
 readme = "README.md"

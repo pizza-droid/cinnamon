@@ -8,8 +8,9 @@ from pathlib import Path
 from .base import BaseScraper
 from .webstream import WebStreamScraper
 from .anime import AnimeScraper
+from .xpass import XPassScraper
 
-_BUILTIN_SCRAPERS = [WebStreamScraper, AnimeScraper]
+_BUILTIN_SCRAPERS = [WebStreamScraper, AnimeScraper, XPassScraper]
 
 _OPTIONAL_SCRAPERS = {
     "vidsrc": {

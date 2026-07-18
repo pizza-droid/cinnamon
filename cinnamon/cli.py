@@ -39,6 +39,7 @@ from .errors import (
 )
 from .player import download_video, play, ytdlp_install_hint
 from .scrapers import get_scraper, list_scrapers
+from .embedapi import EmbedClient
 from .tmdb import TMDBClient
 
 console = Console()
@@ -246,11 +247,7 @@ def _get_tmdb():
     try:
         return TMDBClient()
     except MissingAPIKey:
-        _print_error(
-            "TMDB API key not configured.",
-            'Run "cinnamon setup" for a step-by-step guide to get a free key.',
-        )
-        raise SystemExit(1)
+        return EmbedClient()
 
 
 def _handle_errors(fn):
@@ -988,7 +985,7 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
         if season is not None and ep_start is not None:
             _play_with_menu(show, season, ep_start, ep_end, f"E{ep_start}", scraper, player, quality, info_only, download)
         else:
-            _interactive_episode_picker(None, show, scraper, player, quality, info_only, ep_start=ep_start, ep_end=ep_end)
+            _interactive_episode_picker(_get_tmdb(), show, scraper, player, quality, info_only, ep_start=ep_start, ep_end=ep_end)
         return
 
     tmdb = _get_tmdb()
