@@ -489,28 +489,31 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
 
     import re
     last_pct = -1
+    last_error = ""
     try:
         for line in proc.stdout:
-            if "[download]" not in line:
-                continue
-            m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+).*ETA\s+(\S+)", line)
-            if not m:
-                m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
-            if m:
-                pct = float(m.group(1))
-                if int(pct) == last_pct:
-                    continue
-                last_pct = int(pct)
-                size_val = float(m.group(2))
-                unit = m.group(3)
-                eta = m.group(4) if m.lastindex >= 4 else ""
-                bar_width = 25
-                filled = int(bar_width * pct / 100)
-                bar = "█" * filled + "░" * (bar_width - filled)
-                eta_str = f" ETA {eta}" if eta else ""
-                print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}    ", end="", file=sys.stderr, flush=True)
-            else:
-                print(f"\r  {line.rstrip():<50}", file=sys.stderr, flush=True)
+            if "[download]" in line:
+                m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+).*ETA\s+(\S+)", line)
+                if not m:
+                    m = re.search(r"(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+)(\w+)", line)
+                if m:
+                    pct = float(m.group(1))
+                    if int(pct) == last_pct:
+                        continue
+                    last_pct = int(pct)
+                    size_val = float(m.group(2))
+                    unit = m.group(3)
+                    eta = m.group(4) if m.lastindex >= 4 else ""
+                    bar_width = 25
+                    filled = int(bar_width * pct / 100)
+                    bar = "█" * filled + "░" * (bar_width - filled)
+                    eta_str = f" ETA {eta}" if eta else ""
+                    print(f"\r  {bar}  {pct:>5.1f}%  {size_val:.1f}{unit}{eta_str}    ", end="", file=sys.stderr, flush=True)
+                else:
+                    print(f"\r  {line.rstrip():<50}", file=sys.stderr, flush=True)
+            elif "ERROR:" in line or "WARNING:" in line:
+                last_error = line.strip()
+                print(f"  {line.rstrip()}", file=sys.stderr, flush=True)
 
         proc.wait()
         print(file=sys.stderr)
@@ -520,7 +523,10 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
                 _track_update(track_id, status="completed")
             print(f"  Done — {safe}", file=sys.stderr)
         else:
-            raise PlayerLaunchError("yt-dlp", f"exit code {proc.returncode}")
+            detail = last_error or f"exit code {proc.returncode}"
+            if track_id:
+                _track_update(track_id, status="error")
+            raise PlayerLaunchError("yt-dlp", detail)
 
     except KeyboardInterrupt:
         print(file=sys.stderr)
