@@ -472,6 +472,10 @@ def download_video(url, title="", referer=None, output_dir=".", track_id=None):
 
     cmd = [
         exe, "--no-mtime", "--no-warnings", "-o", outtmpl,
+        "--retries", "10",
+        "--fragment-retries", "10",
+        "--retry-sleep", "2",
+        "--socket-timeout", "60",
     ]
     if referer:
         cmd += ["--referer", referer]

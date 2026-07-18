@@ -42,9 +42,9 @@ class WebStreamScraper(BaseScraper):
         season = episode_info.get("season", 1)
         episode = episode_info.get("episode", 1)
         quality = episode_info.get("quality", "")
-        # vidlink uses a different CDN that is not throttled like vixsrc's
-        # segment edge, so prefer it when downloading to avoid 503 stalls.
-        prefer_vidlink = bool(episode_info.get("download"))
+        # vixsrc first (sequential HLS that yt-dlp handles reliably); vidlink is the
+        # fallback. vidlink's .mp4 CDN (bcdn/stormvv) rate-limits aggressively (HTTP
+        # 429), so it is not preferred for downloads.
 
         if not tmdb_id:
             raise ScraperParseError(self.name, "Missing tmdb_id/movie_id/tv_id in episode_info")
@@ -52,16 +52,10 @@ class WebStreamScraper(BaseScraper):
         deadline = _time.time() + 30
 
         if media_type == "movie":
-            if prefer_vidlink:
-                vixsrc_fn, vidlink_fn = _try_vidlink_movie, _try_vixsrc_movie
-                vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
-            else:
-                vixsrc_fn, vidlink_fn = _try_vixsrc_movie, _try_vidlink_movie
-                vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
-
+            vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
             if _time.time() < deadline:
                 try:
-                    result = vixsrc_fn(tmdb_id, quality)
+                    result = _try_vixsrc_movie(tmdb_id, quality)
                     if result:
                         label = quality.upper() if quality else "Auto"
                         return ScraperResult(
@@ -75,7 +69,7 @@ class WebStreamScraper(BaseScraper):
 
             if _time.time() < deadline:
                 try:
-                    result = vidlink_fn(tmdb_id, quality)
+                    result = _try_vidlink_movie(tmdb_id, quality)
                     if result:
                         label = quality.upper() if quality else "Auto"
                         return ScraperResult(
@@ -90,16 +84,10 @@ class WebStreamScraper(BaseScraper):
             raise ScraperNoStreamError(self.name, f"No HTTP stream found for {show}")
 
         # TV
-        if prefer_vidlink:
-            vixsrc_fn, vidlink_fn = _try_vidlink, _try_vixsrc
-            vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
-        else:
-            vixsrc_fn, vidlink_fn = _try_vixsrc, _try_vidlink
-            vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
-
+        vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
         if _time.time() < deadline:
             try:
-                result = vixsrc_fn(tmdb_id, season, episode, quality)
+                result = _try_vixsrc(tmdb_id, season, episode, quality)
                 if result:
                     label = quality.upper() if quality else "Auto"
                     return ScraperResult(
@@ -113,7 +101,7 @@ class WebStreamScraper(BaseScraper):
 
         if _time.time() < deadline:
             try:
-                result = vidlink_fn(tmdb_id, season, episode, quality)
+                result = _try_vidlink(tmdb_id, season, episode, quality)
                 if result:
                     label = quality.upper() if quality else "Auto"
                     return ScraperResult(
