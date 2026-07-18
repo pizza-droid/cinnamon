@@ -1,8 +1,10 @@
+import atexit
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from .errors import PlayerNotFoundError, PlayerLaunchError
@@ -330,9 +332,48 @@ def play_mpv(url, title="", referer=None, subtitle_url=None):
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
     if subtitle_url:
-        cmd += ["--sid=no", f"--sub-file={subtitle_url}"]
+        script_path = _write_auto_sub_script()
+        cmd += [f"--script={script_path}", f"--sub-file={subtitle_url}"]
     cmd.append(url)
     return _launch("mpv", cmd)
+
+
+_AUTO_SUB_LUA = """\
+local function select_external_sub()
+    local count = mp.get_property_number("track-list/count", 0)
+    for i = 0, count - 1 do
+        local track_type = mp.get_property(string.format("track-list/%d/type", i))
+        local is_external = mp.get_property(string.format("track-list/%d/external", i))
+        if track_type == "sub" and is_external == "yes" then
+            mp.set_property_number("sid", i + 1)
+            break
+        end
+    end
+end
+mp.register_event("file-loaded", select_external_sub)
+"""
+
+_AUTO_SUB_SCRIPTS = set()
+
+
+def _write_auto_sub_script():
+    fd, path = tempfile.mkstemp(suffix=".lua", prefix="cinnamon_sub_")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(_AUTO_SUB_LUA)
+    _AUTO_SUB_SCRIPTS.add(path)
+    return path
+
+
+def _cleanup_auto_sub_scripts():
+    for path in list(_AUTO_SUB_SCRIPTS):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        _AUTO_SUB_SCRIPTS.discard(path)
+
+
+atexit.register(_cleanup_auto_sub_scripts)
 
 
 def _streamer_path():
