@@ -58,31 +58,21 @@ class WebStreamScraper(BaseScraper):
             vixsrc_ref = f"https://vixsrc.to/embed/movie/{tmdb_id}"
             vixsrc_url = None
             vidlink_url = None
-            vidlink_sub_url = None
-
-            if _time.time() < deadline:
-                try:
-                    result = _try_vidlink_movie(tmdb_id, quality)
-                    if result:
-                        vidlink_url, vidlink_sub_url = result
-                except ScraperNetworkError:
-                    pass
-
-            if vidlink_url and vidlink_sub_url:
-                label = quality.upper() if quality else "Auto"
-                return ScraperResult(
-                    title=f"{show} ({label})",
-                    m3u8_url=vidlink_url,
-                    referer="https://vidlink.pro/",
-                    user_agent=UA,
-                    subtitle_url=vidlink_sub_url,
-                )
+            sub_url = None
 
             if _time.time() < deadline:
                 try:
                     res = _try_vixsrc_movie(tmdb_id, quality)
                     if res:
                         vixsrc_url, _ = res
+                except ScraperNetworkError:
+                    pass
+
+            if _time.time() < deadline:
+                try:
+                    result = _try_vidlink_movie(tmdb_id, quality)
+                    if result:
+                        vidlink_url, sub_url = result
                 except ScraperNetworkError:
                     pass
 
@@ -93,7 +83,7 @@ class WebStreamScraper(BaseScraper):
                     m3u8_url=vixsrc_url,
                     referer=vixsrc_ref,
                     user_agent=UA,
-                    subtitle_url=vidlink_sub_url,
+                    subtitle_url=sub_url,
                 )
 
             if vidlink_url:
@@ -103,6 +93,7 @@ class WebStreamScraper(BaseScraper):
                     m3u8_url=vidlink_url,
                     referer="https://vidlink.pro/",
                     user_agent=UA,
+                    subtitle_url=sub_url,
                 )
 
             raise ScraperNoStreamError(self.name, f"No HTTP stream found for {show}")
@@ -111,31 +102,21 @@ class WebStreamScraper(BaseScraper):
         vixsrc_ref = f"https://vixsrc.to/embed/tv/{tmdb_id}/{season}/{episode}"
         vixsrc_url = None
         vidlink_url = None
-        vidlink_sub_url = None
-
-        if _time.time() < deadline:
-            try:
-                result = _try_vidlink(tmdb_id, season, episode, quality)
-                if result:
-                    vidlink_url, vidlink_sub_url = result
-            except ScraperNetworkError:
-                pass
-
-        if vidlink_url and vidlink_sub_url:
-            label = quality.upper() if quality else "Auto"
-            return ScraperResult(
-                title=f"{show} S{season:02d}E{episode:02d} ({label})",
-                m3u8_url=vidlink_url,
-                referer="https://vidlink.pro/",
-                user_agent=UA,
-                subtitle_url=vidlink_sub_url,
-            )
+        sub_url = None
 
         if _time.time() < deadline:
             try:
                 res = _try_vixsrc(tmdb_id, season, episode, quality)
                 if res:
                     vixsrc_url, _ = res
+            except ScraperNetworkError:
+                pass
+
+        if _time.time() < deadline:
+            try:
+                result = _try_vidlink(tmdb_id, season, episode, quality)
+                if result:
+                    vidlink_url, sub_url = result
             except ScraperNetworkError:
                 pass
 
@@ -146,7 +127,7 @@ class WebStreamScraper(BaseScraper):
                 m3u8_url=vixsrc_url,
                 referer=vixsrc_ref,
                 user_agent=UA,
-                subtitle_url=vidlink_sub_url,
+                subtitle_url=sub_url,
             )
 
         if vidlink_url:
@@ -156,6 +137,7 @@ class WebStreamScraper(BaseScraper):
                 m3u8_url=vidlink_url,
                 referer="https://vidlink.pro/",
                 user_agent=UA,
+                subtitle_url=sub_url,
             )
 
 

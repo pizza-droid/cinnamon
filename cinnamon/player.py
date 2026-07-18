@@ -331,10 +331,10 @@ def play_mpv(url, title="", referer=None, subtitle_url=None):
            "--network-timeout=20", "--keep-open=no"]
     if referer:
         cmd += ["--http-header-fields=Referer: " + referer]
-    if subtitle_url:
-        sub_path = _download_subtitle(subtitle_url)
-        script_path = _write_auto_sub_script()
-        cmd += ["--script", script_path, "--sub-file", sub_path]
+        if subtitle_url:
+            sub_path = _download_subtitle(subtitle_url)
+            script_path = _write_auto_sub_script()
+            cmd += [f"--script={script_path}", f"--sub-file={sub_path}"]
     cmd.append(url)
     return _launch("mpv", cmd)
 
