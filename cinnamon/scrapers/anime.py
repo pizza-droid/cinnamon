@@ -2,14 +2,59 @@ import base64
 import hashlib
 import json
 import re
+import socket
 import time as _time
+import contextlib
 from typing import Optional, Tuple
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..errors import ScraperNetworkError, ScraperNoStreamError, ScraperParseError
 from ..player import DEFAULT_UA as UA
 from .base import BaseScraper, ScraperResult
+
+
+@contextlib.contextmanager
+def _force_ipv4():
+    """Temporarily make getaddrinfo prefer IPv4.
+
+    allanime's API is served behind Cloudflare which publishes AAAA (IPv6)
+    records first. On hosts without working IPv6, Python's getaddrinfo can
+    intermittently fail with 'Errno 11002 getaddrinfo failed', so we bias
+    resolution toward IPv4 for the duration of a request.
+    """
+    orig = socket.getaddrinfo
+
+    def _prefer_v4(host, port, family=socket.AF_UNSPEC, type=0, proto=0, flags=0):
+        try:
+            return orig(host, port, socket.AF_INET, type, proto, flags)
+        except socket.gaierror:
+            return orig(host, port, family, type, proto, flags)
+
+    socket.getaddrinfo = _prefer_v4
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = orig
+
+
+def _new_session(ua=UA, origin="https://youtu-chan.com"):
+    """Build a requests.Session with retries and IPv4-biased DNS."""
+    s = requests.Session()
+    s.headers.update({"User-Agent": ua, "Origin": origin})
+    retry = Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=frozenset(["GET", "POST"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=4)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
 
 TIMEOUT = 15
 API = "https://api.allanime.day/api"
@@ -84,8 +129,7 @@ def _aa_source_query_hash(chunk_js: str) -> Optional[str]:
 def _aa_fetch():
     """Fetch (expires_ms, epoch, key, mask, query_hash) from the live site."""
     try:
-        s = requests.Session()
-        s.headers.update({"User-Agent": _BROWSER_UA})
+        s = _new_session(ua=_BROWSER_UA, origin="https://mkissa.to")
         html = s.get(_MKISSA_URL, timeout=10).text
         aa = json.loads(re.search(r"window\.__aaCrypto\s*=\s*(\{.*?\})", html).group(1))
         part_b, epoch = aa["partB"], int(aa["epoch"])
@@ -179,7 +223,11 @@ def _gql(session, query, variables):
     if elapsed < 3.5:
         _time.sleep(3.5 - elapsed)
     body = json.dumps({"variables": json.dumps(variables), "query": query}, ensure_ascii=False, separators=(",", ":"))
-    resp = session.post(API, data=body, timeout=TIMEOUT, headers={"Content-Type": "application/json"})
+    try:
+        with _force_ipv4():
+            resp = session.post(API, data=body, timeout=TIMEOUT, headers={"Content-Type": "application/json"})
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ScraperNetworkError("allanime", f"Could not reach allanime API (check your connection / DNS): {e}")
     _LAST_REQUEST = _time.time()
     if resp.status_code != 200:
         raise ScraperNetworkError("allanime", f"GraphQL returned {resp.status_code}")
@@ -199,7 +247,11 @@ def _gql_src(session, variables, query_hash=None, aa_req=None):
         {"extensions": extensions, "variables": json.dumps(variables)},
         ensure_ascii=False, separators=(",", ":"),
     )
-    resp = session.post(API, data=body, timeout=TIMEOUT, headers={"Content-Type": "application/json"})
+    try:
+        with _force_ipv4():
+            resp = session.post(API, data=body, timeout=TIMEOUT, headers={"Content-Type": "application/json"})
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ScraperNetworkError("allanime", f"Could not reach allanime API (check your connection / DNS): {e}")
     _LAST_REQUEST = _time.time()
     if resp.status_code != 200:
         raise ScraperNetworkError("allanime", f"Source GQL returned {resp.status_code}")
@@ -274,8 +326,7 @@ class AnimeScraper(BaseScraper):
             raise ScraperParseError(self.name, "Missing show name in episode_info")
 
         deadline = _time.time() + 30
-        session = requests.Session()
-        session.headers.update({"User-Agent": UA, "Origin": "https://youtu-chan.com"})
+        session = _new_session()
 
         if _time.time() >= deadline:
             raise ScraperNoStreamError(self.name, "Timeout searching allanime")
