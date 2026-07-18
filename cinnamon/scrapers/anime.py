@@ -307,11 +307,12 @@ def _find_show(session, name):
         r_words = set(re.split(r"[^\w]+", rn))
         overlap = len(q_words & r_words)
         all_match = q_words <= r_words
-        has_suffix = bool(re.search(r"\b(?:part|season|special|cour|ova)\s*\d*\b", rn))
+        has_suffix = bool(re.search(r"\b(?:part|season|special|cour|ova|movie|film)\s*\d*\b", rn))
+        extra_words = len(r_words - q_words)
         name_len = len(rn)
-        scored.append((overlap, all_match, 0 if has_suffix else 1, name_len, r["_id"]))
-    scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
-    return scored[0][4]
+        scored.append((overlap, all_match, 0 if has_suffix else 1, extra_words, name_len, r["_id"]))
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3], x[4]))
+    return scored[0][5]
 
 def _extract_mp4upload(session, embed_url):
     resp = session.get(embed_url, timeout=TIMEOUT)
