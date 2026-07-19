@@ -1,4 +1,4 @@
-# cinnamon
+# Cinnamon | Beta
 
 Watch TV shows, movies, and anime from your terminal. Search, pick a title, and it plays in mpv or VLC.
 
