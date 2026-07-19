@@ -746,9 +746,7 @@ def cli(ctx, setup):
             ))
             console.print()
             console.print("  [dim]Search & watch will use an experimental proxy (no key needed).[/dim]")
-            if Confirm.ask("Add a TMDB API key for better results?", default=False):
-                ctx.invoke(setup_cmd)
-                return
+            console.print("  [dim]Optional: set a TMDB key later with [cyan]cinnamon config set-api-key <key>[/cyan].[/dim]")
         theme = get_theme()
         console.clear()
         console.print(Panel.fit(

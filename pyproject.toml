@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cinnamon-cli"
-version = "0.2.37"
+version = "0.2.38"
 description = "Watch Movies, TV shows and anime from your terminal."
 license = { text = "CC BY-NC 4.0" }
 readme = "README.md"
