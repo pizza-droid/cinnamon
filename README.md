@@ -39,7 +39,7 @@ cinnamon search "Breaking Bad"
 cinnamon search "Inception"
 ```
 
-For Anime you can run (Works even if you dont have an api key):
+For Anime you can run:
 
 ```bash
 cinnamon anime "Chainsaw Man"
