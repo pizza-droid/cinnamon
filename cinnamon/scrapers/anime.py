@@ -72,7 +72,7 @@ API = "https://api.allanime.day/api"
 # ---------------------------------------------------------------------------
 
 _MKISSA_URL = "https://mkissa.to/"
-_CDN_IMMUTABLE = "https://cdn.allanime.day/all/mk/_app/immutable/"
+_CDN_IMMUTABLE = "https://cdn.mkissa.net/all/mk/_app/immutable/"
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -81,8 +81,8 @@ _BROWSER_UA = (
 # Rotated 2026-07; the runtime fetch (_aa_fetch) overrides these with live
 # values from the site so the token stays valid between code updates.
 _FALLBACK_EPOCH = 4130
-_FALLBACK_MASK = "5264513ba898cb78c5c646bc1c12f2965a53a99891d91e83a2bf9244c36cca41"
-_FALLBACK_PART_B = "nSMmjt8SIaRRj6ebdfimy1qXlUBuvMoBlPoUiSFoORg="
+_FALLBACK_MASK = "4e600edee179ef01e61d9e322afb6418efb0ea4a33e798adcb62edc5e885423b"
+_FALLBACK_PART_B = "eu1Ih9XG2JYVqkp8XDkLzBEOIOEUQwCILJLs+ifdpeA="
 _FALLBACK_QUERY_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 # Static legacy key AllAnime also signs tobeparsed with, depending on rotation.
 _RESP_STATIC_KEY = hashlib.sha256(b"Xot36i3lK3:v1").digest()
@@ -257,6 +257,100 @@ def _gql_src(session, variables, query_hash=None, aa_req=None):
         raise ScraperNetworkError("allanime", f"Source GQL returned {resp.status_code}")
     return resp.json()
 
+
+# AllAnime rotates its persisted-query hash frequently, which makes the
+# sha256(persistedQuery) approach break with "PersistedQueryNotFound". The
+# source-query string itself lives in the site's JS chunk, so we resolve it
+# at runtime (expanding the ${...} placeholders) and send it inline. This is
+# far more stable than hardcoding / scraping a rotating hash.
+_SOURCE_QUERY_CACHE = None  # (expires_ms, query_string)
+
+
+def _aa_source_query_string():
+    global _SOURCE_QUERY_CACHE
+    if _SOURCE_QUERY_CACHE is not None and _SOURCE_QUERY_CACHE[0] > _time.time() * 1000:
+        return _SOURCE_QUERY_CACHE[1]
+    s = _new_session(ua=_BROWSER_UA, origin="https://mkissa.to")
+    try:
+        html = s.get(_MKISSA_URL, timeout=10).text
+        app = re.search(r"_app/immutable/(entry/app\.[^\"']+\.js)", html)
+        if not app:
+            raise ValueError("no app entry")
+        app_js = s.get(_CDN_IMMUTABLE + app.group(1), timeout=10).text
+        chunk_urls = re.findall(r"chunks/[A-Za-z0-9_\-]+\.js", app_js)
+        js = ""
+        for cu in chunk_urls:
+            c = s.get(_CDN_IMMUTABLE + cu, timeout=10).text
+            if "sourceUrls" in c:
+                js = c
+                break
+        if not js:
+            raise ValueError("no source chunk")
+
+        def _def(name):
+            fn = re.search(
+                r"\b" + re.escape(name) + r"\s*=\s*\w+\s*=>\s*\w+\s*\?\s*`([^`]*)`\s*:\s*`([^`]*)`",
+                js,
+            )
+            if fn:
+                return fn.group(1)
+            var = re.search(r"\b" + re.escape(name) + r"\s*=\s*`([^`]*)`", js)
+            return var.group(1) if var else None
+
+        def _resolve(t, depth=0, seen=None):
+            if seen is None:
+                seen = set()
+            if depth > 12:
+                return t
+            for name in re.findall(r"\$\{([^}]+)\}", t):
+                name = name.strip()
+                if name in seen:
+                    continue
+                seen.add(name)
+                repl = _def(name)
+                if repl is None:
+                    repl = ""
+                t = t.replace("${" + name + "}", repl)
+            if "${" in t:
+                t = _resolve(t, depth + 1, seen)
+            return t
+
+        m = re.search(r"`([^`]*episode\([^`]*sourceUrls[^`]*)`", js)
+        if not m:
+            raise ValueError("no query template")
+        q = _resolve(m.group(1)).strip()
+        if "${" in q:
+            raise ValueError("unresolved placeholders")
+        _SOURCE_QUERY_CACHE = (_time.time() * 1000 + 3600_000, q)
+        return q
+    except Exception:
+        if _SOURCE_QUERY_CACHE is not None:
+            return _SOURCE_QUERY_CACHE[1]
+        raise ScraperNetworkError(
+            "allanime", "Could not build source query (site layout may have changed)"
+        )
+
+
+def _gql_src_inline(session, variables, aa_req):
+    global _LAST_REQUEST
+    elapsed = _time.time() - _LAST_REQUEST
+    if elapsed < 3.5:
+        _time.sleep(3.5 - elapsed)
+    query = _aa_source_query_string()
+    body = json.dumps(
+        {"query": query, "variables": variables, "extensions": {"aaReq": aa_req}},
+        ensure_ascii=False, separators=(",", ":"),
+    )
+    try:
+        with _force_ipv4():
+            resp = session.post(API, data=body, timeout=TIMEOUT, headers={"Content-Type": "application/json"})
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ScraperNetworkError("allanime", f"Could not reach allanime API (check your connection / DNS): {e}")
+    _LAST_REQUEST = _time.time()
+    if resp.status_code != 200:
+        raise ScraperNetworkError("allanime", f"Source GQL returned {resp.status_code}")
+    return resp.json()
+
 def _allanime_search(session, query):
     data = _gql(session, _SEARCH_GQL, {"search": {"allowAdult": False, "allowUnknown": False, "query": query}})
     return data.get("data", {}).get("shows", {}).get("edges", [])
@@ -266,9 +360,9 @@ def _allanime_episodes(session, show_id):
     return data.get("data", {}).get("show", {}).get("availableEpisodesDetail", {})
 
 def _allanime_sources(session, show_id, ep_str, tt="sub"):
-    query_hash, token, key = _aa_build_token()
+    token, key = _aa_build_token()[1], _aa_build_token()[2]
     variables = {"showId": show_id, "translationType": tt, "episodeString": ep_str}
-    data = _gql_src(session, variables, query_hash, token)
+    data = _gql_src_inline(session, variables, token)
     if isinstance(data, dict):
         tp = data.get("data", {}).get("tobeparsed", "")
         if not tp and data.get("errors"):
@@ -295,11 +389,22 @@ def _find_show(session, name):
         rn = r.get("name", "").lower().strip()
         if q == rn:
             return r["_id"]
+    q_words = frozenset(w for w in re.split(r"\W+", q) if len(w) > 2)
+    best_sub = None
+    best_sub_diff = float("inf")
     for r in results:
         rn = r.get("name", "").lower().strip()
-        if q in rn or rn in q:
-            return r["_id"]
+        r_words = set(re.split(r"\W+", rn))
+        shared = q_words & r_words
+        if len(shared) >= max(len(q_words) * 0.5, 1) or rn in q or q in rn:
+            diff = abs(len(rn) - len(q))
+            if diff < best_sub_diff:
+                best_sub_diff = diff
+                best_sub = r["_id"]
+    if best_sub:
+        return best_sub
 
+    q_has_movie = bool(re.search(r"\b(?:movie|film)\b", q))
     q_words = frozenset(w for w in re.split(r"[^\w]+", q) if len(w) > 2)
     scored = []
     for r in results:
@@ -308,9 +413,13 @@ def _find_show(session, name):
         overlap = len(q_words & r_words)
         all_match = q_words <= r_words
         has_suffix = bool(re.search(r"\b(?:part|season|special|cour|ova|movie|film)\s*\d*\b", rn))
+        if q_has_movie:
+            suffix_bonus = 1 if has_suffix else 0
+        else:
+            suffix_bonus = 0 if has_suffix else 1
         extra_words = len(r_words - q_words)
         name_len = len(rn)
-        scored.append((overlap, all_match, 0 if has_suffix else 1, extra_words, name_len, r["_id"]))
+        scored.append((overlap, all_match, suffix_bonus, extra_words, name_len, r["_id"]))
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3], x[4]))
     return scored[0][5]
 
@@ -320,6 +429,81 @@ def _extract_mp4upload(session, embed_url):
         return None
     m = re.search(r'src:\s*"([^"]+)"', resp.text)
     return m.group(1) if m else None
+
+
+# AllAnime encodes some source URLs as "--<hex>" provider IDs. Each hex pair
+# maps through a custom table to an ASCII char; the decoded string is a
+# "/apivtwo/clock?id=..." path on allanime's CDN whose /clock.json endpoint
+# returns the real stream URL. (Mirrors ani-cli / anilix's provider_init.)
+_LUF_HEX = {
+    "79": "A", "7a": "B", "7b": "C", "7c": "D", "7d": "E", "7e": "F", "7f": "G",
+    "70": "H", "71": "I", "72": "J", "73": "K", "74": "L", "75": "M", "76": "N",
+    "77": "O", "68": "P", "69": "Q", "6a": "R", "6b": "S", "6c": "T", "6d": "U",
+    "6e": "V", "6f": "W", "60": "X", "61": "Y", "62": "Z",
+    "59": "a", "5a": "b", "5b": "c", "5c": "d", "5d": "e", "5e": "f", "5f": "g",
+    "50": "h", "51": "i", "52": "j", "53": "k", "54": "l", "55": "m", "56": "n",
+    "57": "o", "48": "p", "49": "q", "4a": "r", "4b": "s", "4c": "t", "4d": "u",
+    "4e": "v", "4f": "w", "40": "x", "41": "y", "42": "z",
+    "08": "0", "09": "1", "0a": "2", "0b": "3", "0c": "4", "0d": "5", "0e": "6",
+    "0f": "7", "00": "8", "01": "9",
+    "15": "-", "16": ".", "67": "_", "46": "~", "02": ":", "17": "/", "07": "?",
+    "1b": "#", "63": "[", "65": "]", "78": "@", "19": "!", "1c": "$", "1e": "&",
+    "10": "(", "11": ")", "12": "*", "13": "+", "14": ",", "03": ";", "05": "=",
+    "1d": "%",
+}
+
+
+def _decode_luf(hexid):
+    """Decode an AllAnime '--<hex>' provider id into its clock path."""
+    if len(hexid) % 2 != 0:
+        return None
+    out = []
+    for i in range(0, len(hexid), 2):
+        ch = _LUF_HEX.get(hexid[i:i + 2].lower())
+        if ch is None:
+            return None
+        out.append(ch)
+    path = "".join(out).replace("/clock", "/clock.json")
+    return "https://allanime.day" + path if path.startswith("/") else path
+
+
+def _clock_stream(session, clock_url):
+    """Fetch an AllAnime clock.json endpoint and return the stream URL."""
+    try:
+        resp = session.get(
+            clock_url, timeout=TIMEOUT,
+            headers={"User-Agent": _BROWSER_UA, "Referer": "https://allanime.day/"},
+        )
+    except requests.RequestException:
+        return None
+    if resp.status_code != 200:
+        return None
+    ct = resp.headers.get("Content-Type", "")
+    text = resp.text.strip()
+    if "application/json" in ct or text.startswith("{"):
+        try:
+            j = resp.json()
+        except ValueError:
+            return text if text.startswith("http") else None
+        # clock.json may return the URL directly or nested under "url"/"links".
+        if isinstance(j, str):
+            return j if j.startswith("http") else None
+        if isinstance(j, dict):
+            for k in ("url", "src", "link", "stream"):
+                v = j.get(k)
+                if isinstance(v, str) and v.startswith("http"):
+                    return v
+            links = j.get("links") or j.get("sources")
+            if isinstance(links, list) and links:
+                first = links[0]
+                if isinstance(first, dict):
+                    return first.get("url") or first.get("file")
+                if isinstance(first, str):
+                    return first
+    # Some clocks return the bare URL as text.
+    if text.startswith("http"):
+        return text.split()[0]
+    return None
 
 
 class AnimeScraper(BaseScraper):
@@ -354,6 +538,9 @@ class AnimeScraper(BaseScraper):
         if not sources:
             raise ScraperNoStreamError(self.name, f"No sources for episode {episode}")
 
+        label = "Dub" if translation == "dub" else "Sub"
+
+        # 1) mp4upload — direct .mp4, no extra hops.
         for src in sources:
             if _time.time() >= deadline:
                 break
@@ -365,13 +552,63 @@ class AnimeScraper(BaseScraper):
             try:
                 direct = _extract_mp4upload(session, url)
                 if direct:
-                    label = "Dub" if translation == "dub" else "Sub"
                     return ScraperResult(
                         title=f"{show_name} E{episode:02d} ({label})",
                         m3u8_url=direct,
                         referer="https://mp4upload.com/",
                         user_agent=UA,
                     )
+            except Exception:
+                pass
+
+        # 2) AllAnime's hex-encoded providers (Luf-Mp4, S-mp4, Yt-mp4, ...):
+        #    decode the "--<hex>" id to a clock.json path and fetch the real URL.
+        for src in sources:
+            if _time.time() >= deadline:
+                break
+            url = src.get("sourceUrl", "")
+            name = (src.get("sourceName") or "").lower()
+            if not url or not url.startswith("--"):
+                continue
+            try:
+                clock = _decode_luf(url[2:])
+                if not clock:
+                    continue
+                stream = _clock_stream(session, clock)
+                if stream:
+                    referer = "https://allanime.day/"
+                    if "mp4upload" in stream:
+                        referer = "https://mp4upload.com/"
+                    return ScraperResult(
+                        title=f"{show_name} E{episode:02d} ({label}) [{name}]",
+                        m3u8_url=stream,
+                        referer=referer,
+                        user_agent=UA,
+                    )
+            except Exception:
+                pass
+
+        # 3) Any other directly-playable http(s) URL (already-resolved media:
+        #    .m3u8 / .mp4 / .m4v / .mkv). Embed pages are NOT playable, so we
+        #    only accept URLs that end in a known media extension (or carry an
+        #    HLS query). Bare provider pages (.com/e/...) are skipped so the
+        #    caller can fall back to webstream instead of handing mpv a webpage.
+        for src in sources:
+            if _time.time() >= deadline:
+                break
+            url = src.get("sourceUrl", "")
+            if not url or not url.startswith("http"):
+                continue
+            low = url.split("?")[0].lower()
+            if not (low.endswith((".m3u8", ".mp4", ".m4v", ".mkv", ".mov", ".webm")) or ".m3u8" in url):
+                continue
+            try:
+                return ScraperResult(
+                    title=f"{show_name} E{episode:02d} ({label})",
+                    m3u8_url=url,
+                    referer="https://allanime.day/",
+                    user_agent=UA,
+                )
             except Exception:
                 pass
 

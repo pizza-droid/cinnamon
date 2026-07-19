@@ -1008,11 +1008,21 @@ def watch(query, tmdb_id, media_type, season, ep_str, scraper, player, download,
     # Explicit id given: skip TMDB entirely (no API key needed) and let the
     # scraper resolve the stream straight from the id.
     if tmdb_id and media_type == "movie":
-        show = {"title": f"Movie {tmdb_id}", "id": tmdb_id}
+        try:
+            details = _get_tmdb().get_movie_details(tmdb_id)
+            title = details.get("title", f"Movie {tmdb_id}")
+        except Exception:
+            title = f"Movie {tmdb_id}"
+        show = {"title": title, "id": tmdb_id}
         _play_movie(show, scraper, player, quality, info_only, download)
         return
     if tmdb_id and media_type == "tv":
-        show = {"name": f"Show {tmdb_id}", "id": tmdb_id}
+        try:
+            details = _get_tmdb().get_tv_details(tmdb_id)
+            name = details.get("name", f"Show {tmdb_id}")
+        except Exception:
+            name = f"Show {tmdb_id}"
+        show = {"name": name, "id": tmdb_id}
         if season is not None and ep_start is not None:
             _play_with_menu(show, season, ep_start, ep_end, f"E{ep_start}", scraper, player, quality, info_only, download)
         else:
@@ -1158,27 +1168,27 @@ def _interactive_episode_picker(tmdb, show, scraper, player, quality, info_only,
 
     if ep_start is None:
         from .history import get_history as _get_history
-        last = _get_history(show_name)
-        if last and last.get("season") == season_num and last.get("episode"):
-            # Suggest the next unwatched episode (last watched + 1) when it
-            # exists in this season; otherwise fall back to the last watched.
-            resume_ep = last["episode"] + 1
-            if not any(
-                isinstance(ep.get("episode_number"), int) and ep["episode_number"] == resume_ep
-                for ep in episodes
-            ):
-                resume_ep = last["episode"]
-            try:
-                answer = Prompt.ask(
-                    f"  Resume from [bold]E{resume_ep:02d}[/bold]? [dim](y/n)[/dim]",
-                    default="y",
-                    show_default=False,
-                ).strip().lower()
-                resume = answer in ("", "y", "yes")
-            except (EOFError, KeyboardInterrupt):
-                resume = True
-            if resume:
-                ep_start = resume_ep
+        entries = _get_history(show_name)
+        if entries:
+            last = entries[0]
+            if last.get("season") == season_num and last.get("episode"):
+                resume_ep = last["episode"] + 1
+                if not any(
+                    isinstance(ep.get("episode_number"), int) and ep["episode_number"] == resume_ep
+                    for ep in episodes
+                ):
+                    resume_ep = last["episode"]
+                try:
+                    answer = Prompt.ask(
+                        f"  Resume from [bold]E{resume_ep:02d}[/bold]? [dim](y/n)[/dim]",
+                        default="y",
+                        show_default=False,
+                    ).strip().lower()
+                    resume = answer in ("", "y", "yes")
+                except (EOFError, KeyboardInterrupt):
+                    resume = True
+                if resume:
+                    ep_start = resume_ep
 
     if ep_start is not None:
         ep_name = f"S{season_num:02d}E{ep_start:02d}"
@@ -1467,6 +1477,34 @@ def config_default_player(player):
     _print_success(f"Default player set to [bold]{player}[/bold].")
 
 
+@config.group("history")
+def config_history():
+    """View or change watch history tracking."""
+
+
+@config_history.command("show")
+def config_history_show():
+    """Show whether watch history tracking is enabled."""
+    cfg = load_config()
+    enabled = cfg.get("history_enabled", True)
+    status = "enabled" if enabled else "disabled"
+    console.print(f"  Watch history tracking: [bold]{status}[/bold]")
+
+
+@config_history.command("toggle")
+@click.argument("state", type=click.Choice(["on", "off"]), required=False)
+def config_history_toggle(state):
+    """Enable or disable watch history tracking."""
+    cfg = load_config()
+    if state:
+        cfg["history_enabled"] = (state == "on")
+    else:
+        cfg["history_enabled"] = not cfg.get("history_enabled", True)
+    save_config(cfg)
+    status = "enabled" if cfg["history_enabled"] else "disabled"
+    _print_success(f"Watch history tracking {status}.")
+
+
 @config.group("scraper")
 def config_scraper():
     """Configure a specific scraper."""
@@ -1610,26 +1648,51 @@ def anime(query, season, ep_str, download, player, quality, info_only, prefer_su
 
     show_name = _title(show)
     theme = get_theme()
+
+    if show.get("format") == "MOVIE":
+        console.print(f"  [{theme['info']}]Anime movie — playing directly[/{theme['info']}]")
+        show_dict = {"name": show_name, "id": 0}
+        proc = _resolve_and_play(show_dict, None, 1, show_name, "anime", player, quality, info_only, download)
+        if proc is None and not info_only and not download:
+            # allanime has no playable source for this movie (e.g. its obfuscated
+            # streamer link can't be decoded, or it only offers iframe embeds with
+            # no direct mp4). Fall back to the webstream scraper via the movie's
+            # TMDB id so the film still plays.
+            tmdb_id = _anime_movie_tmdb_id(show_name, year=(show.get("startDate") or {}).get("year"))
+            if tmdb_id:
+                _print_info(f"allanime has no direct stream — using [bold]webstream[/bold] for the movie.")
+                proc = _resolve_and_play(
+                    {"name": show_name, "id": tmdb_id}, None, None, show_name,
+                    "webstream", player, quality, info_only, download,
+                )
+        if proc is not None and not info_only and not download:
+            try:
+                proc.wait()
+            except AttributeError:
+                pass
+        return
+
     console.clear()
     console.print(Panel(f"[bold {theme['accent']}]{show_name}[/bold {theme['accent']}]", border_style=theme["border"]))
 
     from .history import get_history as _get_history
     if not ep_str:
-        last = _get_history(show_name)
-        if last and last.get("episode"):
-            # Suggest the next unwatched episode (last watched + 1).
-            resume_ep = last["episode"] + 1
-            try:
-                answer = Prompt.ask(
-                    f"  Resume from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]? [dim](y/n)[/dim]",
-                    default="y",
-                    show_default=False,
-                ).strip().lower()
-                resume = answer in ("", "y", "yes")
-            except (EOFError, KeyboardInterrupt):
-                resume = True
-            if resume:
-                ep_str = str(resume_ep)
+        entries = _get_history(show_name)
+        if entries:
+            last = entries[0]
+            if last.get("episode"):
+                resume_ep = last["episode"] + 1
+                try:
+                    answer = Prompt.ask(
+                        f"  Resume from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]? [dim](y/n)[/dim]",
+                        default="y",
+                        show_default=False,
+                    ).strip().lower()
+                    resume = answer in ("", "y", "yes")
+                except (EOFError, KeyboardInterrupt):
+                    resume = True
+                if resume:
+                    ep_str = str(resume_ep)
 
     from .scrapers.anime import _find_show, _allanime_episodes
     import requests as _req
@@ -1652,6 +1715,85 @@ def anime(query, season, ep_str, download, player, quality, info_only, prefer_su
         prefer_sub = prefer_dub = False
     translation = "sub" if prefer_sub else ("dub" if prefer_dub else None)
     _run_anime_flow(show_name, episodes_detail, season, ep_str, player, quality, info_only, download, translation=translation)
+
+
+def _anime_movie_tmdb_id(show_name, year=None):
+    """Best-effort lookup of a movie's TMDB id by title, for webstream fallback.
+
+    allanime only carries the anime's name, not its TMDB id, so we search TMDB
+    for the closest movie match and return its id. When the AniList year is
+    known it is used as a tie-breaker.
+
+    The keyless 2embed proxy (EmbedClient) returns the same real TMDB ids that
+    vixsrc/vidlink use, so it is safe to fall back to it when no TMDB API key
+    is configured — the returned id is genuine, not a guessed/renamed one. The
+    final safety net is webstream itself: it verifies the id against vixsrc's
+    playlist and falls back to vidlink, raising ScraperNoStreamError if neither
+    serves the film. We additionally keep the vixsrc API check below as a
+    pre-filter so we don't hand the player a dead id."""
+    try:
+        tmdb = _get_tmdb()
+        results = tmdb.search_movie(show_name).get("results", [])
+    except Exception:
+        results = []
+    if not results:
+        # Try a normalized title (drop collection suffixes) — vixsrc indexes the
+        # canonical TMDB entry, not the "...: The Movie" / " Movie" rename.
+        norm = _normalize_movie_title(show_name)
+        if norm and norm.lower() != show_name.lower():
+            try:
+                results = tmdb.search_movie(norm).get("results", [])
+            except Exception:
+                results = []
+    if not results:
+        return None
+    q = show_name.lower().strip()
+    nq = _normalize_movie_title(show_name).lower()
+    scored = []
+    for r in results:
+        title = (r.get("title") or r.get("name") or "").lower().strip()
+        if title != q and title != nq and q not in title and nq not in title and title not in q:
+            continue
+        score = 0
+        if title in (q, nq):
+            score = 3
+        elif title.startswith(q) or q.startswith(title):
+            score = 2
+        elif q in title or nq in title or title in q:
+            score = 1
+        ryear = (r.get("release_date") or "")[:4]
+        if year and ryear and str(year) == str(ryear):
+            score += 2
+        scored.append((score, r.get("popularity") or 0, r))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    # Return the best-scored TMDB id. Do NOT pre-filter against vixsrc's API:
+    # vixsrc's movie id space diverges from TMDB for many anime films (the top
+    # pick may 404 on vixsrc yet play fine via vidlink), and webstream already
+    # verifies the id end-to-end (vixsrc playlist + vidlink fallback) and raises
+    # ScraperNoStreamError if neither source serves it. Letting webstream do the
+    # verification keeps the correct film instead of falling back to a wrong one
+    # that merely happens to be indexed by vixsrc.
+    for _, _, r in scored:
+        mid = r.get("id")
+        if mid:
+            return mid
+    return None
+
+
+def _normalize_movie_title(name):
+    """Strip collection/rename suffixes so the canonical TMDB id is found.
+
+    e.g. "A Silent Voice: The Movie" -> "A Silent Voice". vixsrc indexes the
+    base title, not the renamed TMDB entry."""
+    import re
+    n = (name or "").strip()
+    n = re.sub(r"\s*:\s*the\s+movie$", "", n, flags=re.I)
+    n = re.sub(r"\s*:\s*the\s+motion\s+picture$", "", n, flags=re.I)
+    n = re.sub(r"\s*:\s*movie$", "", n, flags=re.I)
+    n = re.sub(r"\s+movie$", "", n, flags=re.I)
+    return n
 
 
 def _run_anime_flow(show_name, episodes_detail, season=None, ep_str=None, player=None, quality=None, info_only=False, download=False, translation=None):
@@ -1803,39 +1945,111 @@ def update():
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
-@click.argument("query", nargs=-1, required=False)
-@click.option("--clear", is_flag=True, help="Clear all watch history")
-@_handle_errors
-def history(query, clear):
-    """Show watch history and resume from last episode."""
-    from .history import clear_history, get_history, list_history
+class HistoryGroup(click.Group):
+    def resolve_command(self, ctx, args):
+        if not args:
+            return super().resolve_command(ctx, args)
+        parent = super()
+        cmd = parent.get_command(ctx, args[0])
+        if cmd is not None:
+            return super().resolve_command(ctx, args)
+        cmd = parent.get_command(ctx, "list")
+        return "list", cmd, args
 
-    if clear:
-        clear_history()
-        _print_success("Watch history cleared.")
-        return
+
+@cli.group(cls=HistoryGroup, invoke_without_command=True)
+@click.pass_context
+def history(ctx):
+    """View or manage watch history."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(history_list, query=None)
+
+
+@history.command("list")
+@click.argument("query", nargs=-1, required=False)
+@_handle_errors
+def history_list(query):
+    """Show watch history and resume from last episode."""
+    from .history import get_history, list_history
 
     q = " ".join(query) if query else None
     if q:
-        entry = get_history(q)
-        if not entry:
-            _print_info(f"No history found for \"{q}\".")
-            return
-        _print_info(f"Last watched [bold]{q}[/bold]: S{entry.get('season', 1)}E{entry.get('episode')}")
-        _play_with_menu(
-            {"name": q, "id": 0},
-            entry.get("season", 1),
-            entry.get("episode"),
-            None,
-            "",
-            entry.get("scraper") or "anime",
-            None,
-            entry.get("quality"),
-            False,
-            False,
-            translation=entry.get("translation"),
-        )
+        entries = get_history(q)
+        if not entries:
+            tmdb = _get_tmdb()
+            results = tmdb.search_tv(q).get("results", [])
+            if not results:
+                results = tmdb.search_movie(q).get("results", [])
+            if results:
+                title_key = "name" if results[0].get("name") else "title"
+                matched = results[0].get(title_key, "")
+                if matched:
+                    entries = get_history(matched)
+            if not entries:
+                from .anilist import search_anime
+                anilist_results = search_anime(q)
+                if anilist_results:
+                    def _title(m):
+                        return m.get("title", {}).get("english") or m.get("title", {}).get("romaji") or m.get("title", {}).get("native", "?")
+                    matched = _title(anilist_results[0])
+                    if matched:
+                        entries = get_history(matched)
+            if not entries:
+                _print_info(f"No history found for \"{q}\".")
+                return
+
+        table = Table(border_style="dim")
+        table.add_column("#", style="cyan")
+        table.add_column("Episode", style="green")
+        table.add_column("Date", style="yellow")
+        import datetime
+        for i, e in enumerate(entries, 1):
+            ts = e.get("timestamp", 0)
+            date_label = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
+            season = e.get("season")
+            episode = e.get("episode")
+            if season is not None and episode is not None:
+                ep_label = f"S{season}E{episode}"
+            else:
+                ep_label = "[dim]—[/dim]"
+            table.add_row(str(i), ep_label, date_label)
+
+        console.print(table)
+
+        last = entries[0]
+        resume_ep = (last.get("episode") or 0) + 1
+        try:
+            answer = Prompt.ask(
+                f"  Continue from [bold]S{last.get('season', 1)}E{resume_ep}[/bold]? [dim](y/n)[/dim]",
+                default="y",
+                show_default=False,
+            ).strip().lower()
+            if answer in ("", "y", "yes"):
+                show_name = q
+                show_id = 0
+                tmdb = _get_tmdb()
+                try:
+                    results = tmdb.search_tv(q).get("results", [])
+                    if results:
+                        show_name = results[0].get("name", q)
+                        show_id = results[0]["id"]
+                except Exception:
+                    pass
+                _play_with_menu(
+                    {"name": show_name, "id": show_id},
+                    last.get("season", 1),
+                    resume_ep,
+                    None,
+                    "",
+                    last.get("scraper") or load_config().get("default_scraper", "webstream"),
+                    None,
+                    last.get("quality"),
+                    False,
+                    False,
+                    translation=last.get("translation"),
+                )
+        except (EOFError, KeyboardInterrupt):
+            pass
         return
 
     entries = list_history()
@@ -1849,16 +2063,42 @@ def history(query, clear):
     table.add_column("Last watched", style="yellow")
 
     import datetime
-    for name, e in entries:
+    for e in entries:
         ts = e.get("timestamp", 0)
         date_label = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
-        table.add_row(name, f"S{e.get('season', 1)}E{e.get('episode')}", date_label)
+        season = e.get("season")
+        episode = e.get("episode")
+        if season is not None and episode is not None:
+            ep_label = f"S{season}E{episode}"
+        else:
+            ep_label = "[dim]—[/dim]"
+        table.add_row(e.get("title", "?"), ep_label, date_label)
 
     console.print(table)
 
-    if _prompt("  Clear all history?", default="n").strip().lower() in ("y", "yes"):
-        clear_history()
-        _print_success("Watch history cleared.")
+
+@history.command("clear")
+@_handle_errors
+def history_clear():
+    """Clear all watch history."""
+    from .history import clear_history
+    clear_history()
+    _print_success("Watch history cleared.")
+
+
+@history.command("toggle")
+@click.argument("state", type=click.Choice(["on", "off"]), required=False)
+@_handle_errors
+def history_toggle(state):
+    """Enable or disable watch history tracking."""
+    cfg = load_config()
+    if state:
+        cfg["history_enabled"] = (state == "on")
+    else:
+        cfg["history_enabled"] = not cfg.get("history_enabled", True)
+    save_config(cfg)
+    status = "enabled" if cfg["history_enabled"] else "disabled"
+    _print_success(f"Watch history tracking {status}.")
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ DEFAULTS = {
     "default_scraper": "webstream",
     "default_player": "auto",
     "theme": "cinnamon",
+    "history_enabled": True,
     "scrapers": {},
 }
 

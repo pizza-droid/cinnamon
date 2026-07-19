@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import re
 
 from .errors import PlayerNotFoundError, PlayerLaunchError
 
@@ -255,13 +256,189 @@ def _termux_proxy_url(target_url, referer=None, user_agent=None):
     return f"http://127.0.0.1:{port}/video.mp4"
 
 
-def _launch(player_name, cmd):
+def _referer_proxy_url(target_url, referer):
+    """Desktop equivalent of the Termux proxy — but HLS/DASH aware.
+
+    Some CDNs (vidlink's stormvv/bcdn, vixsrc's segment hosts) are fronted by
+    Cloudflare and reject hotlinked requests that lack a Referer/Origin, serving
+    a "video restricted" interstitial *video* instead of the real segments. That
+    interstitial plays in the player and then closes — exactly the "cloudflare
+    plays a video with text then stops" symptom.
+
+    mpv's --http-header-fields only attaches the Referer to the top-level
+    request, NOT to the child segment/playlist requests HLS/DASH spawn, so the
+    proxy must sit in front of the *whole* stream. This proxy rewrites every
+    URL inside a playlist (.m3u8/.mpd) to point back at itself, and injects the
+    Referer/Origin on every upstream fetch — so the player only ever talks to
+    127.0.0.1 and the real CDN always sees the required headers.
+    """
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import base64
+    import threading
+    import urllib.request
+    from urllib.parse import urlparse, urlunparse, quote
+
+    headers = {"Referer": referer, "Origin": referer, "User-Agent": DEFAULT_UA}
+
+    def _enc(u):
+        return base64.urlsafe_b64encode(u.encode()).decode()
+
+    def _dec(tok):
+        return base64.urlsafe_b64decode(tok.encode()).decode()
+
+    def _rewrite_playlist(body, base_url):
+        from urllib.parse import urljoin
+        # Rewrite a bare absolute/relative URL (playlist media lines) to proxy.
+        def repl(raw):
+            if raw.startswith("http://127.0.0.1") or raw.startswith("https://127.0.0.1"):
+                return raw
+            if raw.startswith("http://") or raw.startswith("https://"):
+                return f"http://127.0.0.1:{port}/_p/{_enc(raw)}"
+            abs_url = urljoin(base_url, raw)
+            return f"http://127.0.0.1:{port}/_p/{_enc(abs_url)}"
+
+        out = []
+        for line in body.splitlines():
+            if line.startswith("#"):
+                # Rewrite URI="..." and url="..." attributes inside tags.
+                line = re.sub(
+                    r'(URI=")([^"]+)(")',
+                    lambda mm: mm.group(1) + f"http://127.0.0.1:{port}/_p/{_enc(urljoin(base_url, mm.group(2)))}" + mm.group(3),
+                    line,
+                )
+                line = re.sub(
+                    r'(url=")([^"]+)(")',
+                    lambda mm: mm.group(1) + f"http://127.0.0.1:{port}/_p/{_enc(urljoin(base_url, mm.group(2)))}" + mm.group(3),
+                    line,
+                )
+                out.append(line)
+            elif line.strip():
+                out.append(repl(line.strip()))
+            else:
+                out.append(line)
+        return "\n".join(out)
+
+    class _Handler(BaseHTTPRequestHandler):
+        def _fetch(self, url):
+            req = urllib.request.Request(url, headers=headers)
+            return urllib.request.urlopen(req, timeout=30)
+
+        def do_GET(self):
+            try:
+                if self.path.startswith("/_p/"):
+                    real = _dec(self.path[len("/_p/"):])
+                    with self._fetch(real) as resp:
+                        ctype = resp.headers.get("Content-Type", "application/octet-stream")
+                        body = resp.read()
+                        # Rewrite nested playlists so their segments also proxy.
+                        if "mpegurl" in ctype or real.endswith(".m3u8") or real.endswith(".mpd"):
+                            try:
+                                body = _rewrite_playlist(body.decode("utf-8", "replace"), real).encode()
+                                ctype = "application/vnd.apple.mpegurl" if real.endswith(".m3u8") else ctype
+                            except Exception:
+                                pass
+                        self.send_response(resp.status)
+                        self.send_header("Content-Type", ctype)
+                        self.send_header("Content-Length", str(len(body)))
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(body)
+                    return
+                # Initial request: serve the target directly.
+                with self._fetch(target_url) as resp:
+                    ctype = resp.headers.get("Content-Type", "application/octet-stream")
+                    body = resp.read()
+                    if "mpegurl" in ctype or target_url.endswith(".m3u8") or target_url.endswith(".mpd"):
+                        try:
+                            body = _rewrite_playlist(body.decode("utf-8", "replace"), target_url).encode()
+                            ctype = "application/vnd.apple.mpegurl" if target_url.endswith(".m3u8") else ctype
+                        except Exception:
+                            pass
+                    self.send_response(resp.status)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(body)
+            except Exception:
+                try:
+                    self.send_error(502)
+                except Exception:
+                    pass
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{port}/_p/{_enc(target_url)}"
+
+
+def _probe_local_video(local_url, timeout=8.0):
+    """Validate that a local proxy URL actually serves playable media.
+
+    Some CDNs (vidlink's bcdn/stormvv front, vixsrc) return an error page or a
+    truncated/dead response instead of media. The player then opens the file,
+    fails to decode it, and exits 0 with no error — which is indistinguishable
+    from a successful launch. Probing first lets us surface a clear "source is
+    down" message instead of a confusing "Failed to launch player".
+
+    Accepts both direct video (video/*) and playlist manifests (.m3u8/.mpd,
+    which the proxy rewrites to point back at itself)."""
+    import urllib.request
+    _PLAYLIST_TYPES = (
+        "application/vnd.apple.mpegurl", "application/x-mpegurl",
+        "application/dash+xml", "application/vnd.apple.mpegurl.adaptive",
+        "text/plain", "text/xml",
+    )
+    try:
+        req = urllib.request.Request(local_url, headers={"Range": "bytes=0-65535"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            ctype = resp.headers.get("Content-Type", "").lower()
+            data = resp.read(8192)
+            if resp.status not in (200, 206) or not data:
+                return False
+            # Reject obvious HTML/error pages (Cloudflare interstitial, etc.).
+            if b"<html" in data[:512].lower() or b"cloudflare" in data[:512].lower():
+                return False
+            if (ctype.startswith("video/") or ctype.startswith("audio/")
+                    or ctype.startswith("image/")
+                    or any(ctype.startswith(t) for t in _PLAYLIST_TYPES)
+                    or ctype.startswith("application/")):
+                return True
+            return False
+    except urllib.error.HTTPError as e:
+        # A 502 from the referer proxy almost always means the upstream CDN
+        # rate-limited the probe request (vidlink's bcdn/stormvv front returns
+        # HTTP 429 aggressively — see AGENTS.md). That is transient throttling,
+        # not a dead source, so treat it as inconclusive and let the player
+        # attempt the (re-tried) fetch. Genuinely dead HLS/DASH sources are
+        # still caught by the HTML/cloudflare interstitial and empty-body checks
+        # when the proxy returns a 200 with a non-media body.
+        if e.code == 502:
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _launch(player_name, cmd, probe_url=None):
     """Launch a desktop player and verify it actually started.
 
     If the process exits within a short grace period (e.g. no $DISPLAY on a
     headless/WSL box, or missing libs), capture its stderr and raise a clear
     PlayerLaunchError instead of returning a dead process that the caller then
-    blocks on forever."""
+    blocks on forever. `probe_url`, when given, is validated as playable video
+    beforehand so dead sources fail with a clear message rather than "player
+    failed to launch"."""
+    if probe_url is not None and not _probe_local_video(probe_url):
+        raise PlayerLaunchError(
+            player_name,
+            "the stream returned no playable media (the source may be down, "
+            "geo-blocked, or the signed URL expired). Try another scraper, "
+            "quality, or title.",
+        )
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
@@ -274,11 +451,13 @@ def _launch(player_name, cmd):
         )
         raise PlayerLaunchError(player_name, str(e) + hint)
 
-    # Give the player a moment to fail (missing display, codec, etc.).
+    # Give the player a moment to fail (missing display, codec, etc.). Use a
+    # generous window so a slow-to-start stream (cold CDN, localhost referer
+    # proxy, or Cloudflare buffering) isn't mistaken for a dead stream.
     try:
-        proc.wait(timeout=3.0)
+        proc.wait(timeout=5.0)
     except subprocess.TimeoutExpired:
-        # Still alive after 3s — it started successfully. Detach stderr.
+        # Still alive after 5s — it started successfully. Detach stderr.
         if proc.poll() is not None:
             # Exited in the gap between the timeout firing and us checking.
             pass
@@ -289,7 +468,9 @@ def _launch(player_name, cmd):
                 pass
         return proc
 
-    # Exited during the grace period: it failed to start.
+    # Exited during the grace period: it failed to start (or the stream died
+    # instantly, e.g. a dead signed URL). mpv exits 0 with no stderr in that
+    # case, so distinguish a genuine launch failure from an empty/dead stream.
     err = ""
     try:
         if proc.stderr:
@@ -325,18 +506,37 @@ def play_mpv(url, title="", referer=None, subtitle_url=None):
         raise PlayerNotFoundError("mpv")
     if _in_termux():
         return _termux_open(url, "mpv", referer=referer, user_agent=DEFAULT_UA)
-    cmd = [exe, f"--title={title}", "--alang=eng",
+    cmd = [exe, f"--title={title}", "--alang=eng", "--force-window",
            "--cache=yes", "--cache-secs=300", "--ytdl=no",
            "--network-timeout=20", "--keep-open=no"]
     if referer:
-        cmd += ["--http-header-fields=Referer: " + referer]
+        # All Referer-gated CDNs (vidlink's bcdn/stormvv, vixsrc's segment
+        # hosts — both Cloudflare-fronted) reject hotlinks lacking a
+        # Referer/Origin and instead serve a "video restricted" interstitial
+        # *video*. mpv only attaches --http-header-fields to the top-level
+        # request, never to the child segment/playlist requests HLS/DASH
+        # spawn, so for playlists the proxy must sit in front of the entire
+        # stream (rewriting every segment through itself). For a *direct* media
+        # file (.mp4/.mkv/...) there are no child segments, so the proxy just
+        # double-fetches and trips vidlink's aggressive 429 rate-limit; in that
+        # case attach the Referer via --http-header-fields and let mpv fetch
+        # the URL directly.
+        _low = url.split("?")[0].lower()
+        if _low.endswith((".mp4", ".m4v", ".mkv", ".mov", ".webm", ".mp3", ".aac", ".ogg")):
+            cmd.append(f"--http-header-fields=Referer:{referer}")
+            probe_url = None
+        else:
+            url = _referer_proxy_url(url, referer)
+            probe_url = url
+    else:
+        probe_url = None
     if subtitle_url:
         sub_path = _download_subtitle(subtitle_url)
         cmd += [f"--sub-file={sub_path}"]
     else:
         cmd += ["--slang=eng", "--subs-with-matching-audio=yes"]
     cmd.append(url)
-    return _launch("mpv", cmd)
+    return _launch("mpv", cmd, probe_url=probe_url)
 
 
 def _download_subtitle(url):

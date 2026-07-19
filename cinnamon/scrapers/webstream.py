@@ -6,6 +6,7 @@ import requests
 
 from ..errors import ScraperNetworkError, ScraperNoStreamError, ScraperParseError
 from .base import BaseScraper, ScraperResult
+from ._vidlink_crypto import encrypt_media_id
 
 from ..player import DEFAULT_UA as UA
 TIMEOUT = 15
@@ -141,6 +142,9 @@ class WebStreamScraper(BaseScraper):
                 subtitle_url=sub_url,
             )
 
+        raise ScraperNoStreamError(self.name, f"No HTTP stream found for {show}")
+
+
 
 _QUALITY_RENDITIONS = {"480p": "480p", "720p": "720p", "1080p": "1080p", "best": "", "worst": "worst"}
 
@@ -219,6 +223,17 @@ def _vidlink_subtitle_url(data):
     return eng["url"] if eng else (captions[0]["url"] if captions else None)
 
 
+def _vidlink_dash_url(data):
+    """vidlink's direct .mp4 qualities are frequently served truncated/broken
+    by its CDN, but the DASH manifest under stream.alternates.dash.playlist is
+    a full, playable stream that mpv opens natively. Prefer it whenever present."""
+    dash = data.get("stream", {}).get("alternates", {}).get("dash", {})
+    playlist = dash.get("playlist") or ""
+    if ".mpd" in playlist.lower():
+        return playlist
+    return None
+
+
 def _vidlink_quality_url(data, quality=""):
     """vidlink returns direct mp4 URLs per resolution under stream.qualities."""
     qualities = data.get("stream", {}).get("qualities", {})
@@ -239,18 +254,7 @@ def _try_vidlink(tmdb_id, season, episode, quality="") -> Optional[tuple[str, Op
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
 
-    enc = session.get(
-        f"https://enc-dec.app/api/enc-vidlink?text={tmdb_id}",
-        timeout=TIMEOUT,
-    )
-    if enc.status_code != 200:
-        raise ScraperNetworkError("vidlink", f"Encryption API returned {enc.status_code}")
-    try:
-        encoded = enc.json().get("result")
-    except ValueError:
-        raise ScraperNetworkError("vidlink", "Non-JSON response from encryption API")
-    if not encoded:
-        raise ScraperNetworkError("vidlink", "No encrypted ID from API")
+    encoded = _encrypt_vidlink_id(tmdb_id, session)
 
     stream_url = f"https://vidlink.pro/api/b/tv/{encoded}/{season}/{episode}?multiLang=0&audio=eng&subLang=eng"
     stream_resp = session.get(stream_url, timeout=TIMEOUT, headers={
@@ -264,7 +268,10 @@ def _try_vidlink(tmdb_id, season, episode, quality="") -> Optional[tuple[str, Op
     except ValueError:
         raise ScraperNetworkError("vidlink", "Non-JSON response from stream API")
 
-    url = _vidlink_quality_url(data, quality)
+    if not isinstance(data, dict) or not data.get("stream"):
+        raise ScraperNetworkError("vidlink", "No stream in response")
+
+    url = _vidlink_dash_url(data) or _vidlink_quality_url(data, quality)
     sub_url = _vidlink_subtitle_url(data)
     return (url, sub_url)
 
@@ -331,10 +338,12 @@ def _try_vixsrc_movie(tmdb_id, quality="") -> Optional[Tuple[str, bool]]:
     return (match[1], has_subs)
 
 
-def _try_vidlink_movie(tmdb_id, quality="") -> Optional[Tuple[str, Optional[str]]]:
-    session = requests.Session()
-    session.headers.update({"User-Agent": UA})
-
+def _encrypt_vidlink_id(tmdb_id, session):
+    """Mint a vidlink token locally; fall back to enc-dec.app if that fails."""
+    try:
+        return encrypt_media_id(tmdb_id)
+    except Exception:
+        pass
     enc = session.get(
         f"https://enc-dec.app/api/enc-vidlink?text={tmdb_id}",
         timeout=TIMEOUT,
@@ -347,6 +356,14 @@ def _try_vidlink_movie(tmdb_id, quality="") -> Optional[Tuple[str, Optional[str]
         raise ScraperNetworkError("vidlink", "Non-JSON response from encryption API")
     if not encoded:
         raise ScraperNetworkError("vidlink", "No encrypted ID from API")
+    return encoded
+
+
+def _try_vidlink_movie(tmdb_id, quality="") -> Optional[Tuple[str, Optional[str]]]:
+    session = requests.Session()
+    session.headers.update({"User-Agent": UA})
+
+    encoded = _encrypt_vidlink_id(tmdb_id, session)
 
     stream_url = f"https://vidlink.pro/api/b/movie/{encoded}?multiLang=0&audio=eng&subLang=eng"
     stream_resp = session.get(stream_url, timeout=TIMEOUT, headers={
@@ -360,6 +377,9 @@ def _try_vidlink_movie(tmdb_id, quality="") -> Optional[Tuple[str, Optional[str]
     except ValueError:
         raise ScraperNetworkError("vidlink", "Non-JSON response from stream API")
 
-    url = _vidlink_quality_url(data, quality)
+    if not isinstance(data, dict) or not data.get("stream"):
+        raise ScraperNetworkError("vidlink", "No stream in response")
+
+    url = _vidlink_dash_url(data) or _vidlink_quality_url(data, quality)
     sub_url = _vidlink_subtitle_url(data)
     return (url, sub_url)

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cinnamon-cli"
 version = "0.2.37"
-description = "CLI to search TV shows, movies & anime via TMDB/AniList, scrape m3u8 links, and play in VLC/mpv"
+description = "Watch Movies, TV shows and anime from your terminal."
 license = { text = "CC BY-NC 4.0" }
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,6 +35,9 @@ Issues = "https://github.com/pizza-droid/cinnamon/issues"
 [project.optional-dependencies]
 scrapers = [
     "playwright>=1.60",
+]
+vidlink = [
+    "pynacl>=1.5",
 ]
 download = [
     "yt-dlp>=2024.1.0",
