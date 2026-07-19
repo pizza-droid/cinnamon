@@ -93,7 +93,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 | `cinnamon history clear` | Clear all watch history |
 | `cinnamon history toggle [on|off]` | Enable or disable history tracking |
 | `cinnamon config history show` | Show whether history tracking is enabled |
-| `cinnamon config history toggle [on|off]` | Enable or disable via config |
+| `cinnamon config history toggle [on/off]` | Enable or disable via config |
 | `cinnamon scrapers` | See available streaming sources |
 | `cinnamon install <name>` | Add an optional scraper (vidsrc, torrentio) |
 | `cinnamon update` | Check for and install the latest version |
