@@ -91,7 +91,7 @@ cinnamon search "Breaking Bad" -d -e 1-5
 | `cinnamon history` | Show watch history |
 | `cinnamon history <query>` | Show episodes played for a show and continue from next |
 | `cinnamon history clear` | Clear all watch history |
-| `cinnamon history toggle [on|off]` | Enable or disable history tracking |
+| `cinnamon history toggle [on/off]` | Enable or disable history tracking |
 | `cinnamon config history show` | Show whether history tracking is enabled |
 | `cinnamon config history toggle [on/off]` | Enable or disable via config |
 | `cinnamon scrapers` | See available streaming sources |
