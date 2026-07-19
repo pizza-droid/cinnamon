@@ -18,7 +18,7 @@ pip install cinnamon-cli
 cinnamon setup
 ```
 
-> The setup wizard asks for a TMDB API key ([Create a free account here](https://www.themoviedb.org/signup)), the api key is used for show and movie information. If you skip it, `search` & `watch` fall back to an **experimental** 2embed metadata proxy (no key needed) — it works but is less reliable.
+> The setup wizard asks for a TMDB API key ([Create a free account here](https://www.themoviedb.org/signup)), the api key is used for show and movie information. If you skip it, it will use an **experimental** 2embed search (no key needed), it works but is less reliable.
 
 
 
@@ -59,7 +59,7 @@ you can also run it like this:
 ```bash
 cinnamon Inception
 cinnamon Breaking bad
-cinnamon chainsaw man
+cinnamon chainsaw man # Not reccomended to search an anime like this
 ```
 
 ### Download episodes
@@ -153,9 +153,9 @@ cinnamon config set-api-key YOUR_KEY
 
 ## Notes
 
-**Experimental 2embed metadata proxy:** When no TMDB API key is configured, `search` and `watch` fall back to `api.2embed.cc` (no key needed). This works for most popular shows/movies but may be slower, less reliable, or return incomplete results. We reccomend getting a TMDB key for a more reliable experience
+**anime movies do not work right now**, we're working on it, but due to the nature of the scrapers we use, its currently not possible to watch anime movies from cinnamon, this will be fixed soon.
 
-This project is mostly vibe coded and our lazy ass didnt even write more than 300 lines.
+This project is mostly vibe coded and our lazy ass didnt even write more than 300 lines of code.
 feel free to give us feedback so we can improve this project and make it as good as possible.
 
 inspired by [ani-cli](https://github.com/pystardust/ani-cli)
